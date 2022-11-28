@@ -4,6 +4,7 @@
 #include "BluetoothSerial.h"
 
 #include "AITRIP_hal.h"
+#include "AngleTransformation.h"
 #include "common.h"
 #include "ControlAlgo.h"
 #include "DigitalEncoder.h"

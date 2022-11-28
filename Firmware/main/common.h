@@ -22,6 +22,6 @@
 // int M3_ENC_STATE = 0;
 
 long currentT, previousT = 0;
-int pos_time = 250;
+int pos_time = 100;
 
 #endif

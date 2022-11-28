@@ -4,7 +4,7 @@
 #include <Arduino.h>
 
 #define TIMER_BIT 8
-#define PWM_BASE_FREQ 20000
+#define PWM_BASE_FREQ 2000
 
 class ControlAlgo
 {
@@ -16,7 +16,11 @@ public:
     void SetGains(float gains[8]);
     void SetGain(float gain, int i, int relative);
 
-    float _error, _out, _pwm;
+    float GetTarget();
+    float GetGain(int i);
+    void CalcGains(float wc, float wi, float wlp, float gain, float phase);
+
+    float _error, _out, _out_full, _pwm, _diff_error, _int_error;
     float _gains[8];
 
 private:

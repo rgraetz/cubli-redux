@@ -4,12 +4,27 @@ DigitalEncoder M1_ENC(M1_CHA_GPIO, M1_CHB_GPIO, 1);
 DigitalEncoder M2_ENC(M2_CHA_GPIO, M2_CHB_GPIO, 2);
 DigitalEncoder M3_ENC(M3_CHA_GPIO, M3_CHB_GPIO, 3);
 
-MPU_6050 MPU(MPU_ADDR, 0, 0);
+MPU_6050 MPU(MPU_ADDR, 0, 1);
 
+float u1[3] = {-0.81649658, 0.40824829, 0.40824829};
+float u2[3] = {0.0, -0.70710678, 0.70710678};
+float u3[3] = {0.57735027, 0.57735027, 0.57735027};
+AngleTransformation MotorAngles(u1, u2, u3);
+
+float fc = 10;
+float fi = 0.1;
+float flp = 500;
+float gain = 100.0;
+float phase = 11.0;
 ControlAlgo M1_Control(M1_DIR_GPIO, 1, M1_PWM_GPIO, 1);
-float K1 = 100.0;
+
+float offset1 = 0;
+float offset2 = 0;
+float offset3 = 0;
 
 int control_State = 0;
+int late = 0;
+int mode = 0;
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -51,21 +66,25 @@ void loop()
     // M3_ENC.UpdatePosition();
 
     // CONTROL ENABLE/DISABLE LOGIC
-    if (millis() - lastTime > UPDATE_PERIOD)
+    if (millis() - lastTime >= UPDATE_PERIOD)
     {
+        late = millis() - lastTime - UPDATE_PERIOD;
         lastTime = millis();
         // update measurements
-        MPU.GetMeasurement();
-        startNow = digitalRead(START_GPIO);
+        MPU.GetMeasurement();                                          // sensor coordinate system
+        MotorAngles.Transform(-MPU.roll, -MPU.pitch + 90.0, -MPU.yaw); // motor coordinate system, Note: negative to get RHR and offset of 90
 
+        startNow = digitalRead(START_GPIO);
         if (control_State == 0)
         { // disabled, init control gains
             control_State += 1;
 
             enTime = millis();
 
-            float M1_gains[8] = {1.0, 0.0, 0.0, 0.0, K1, 0.0, 0.0, 0.0};
-            M1_Control.SetGains(M1_gains);
+            // float M1_gains[8] = {1.000000, -1.120198, 0.120198, 0.000000, 0.439970, 0.000138, 0.000000, 0.000000};
+            // float M1_gains[8] = {50.000000, 10000.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+            // M1_Control.SetGains(M1_gains);
+            M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
 
             M1_Control.Disable();        // disable and reset control
             digitalWrite(EMO_GPIO, LOW); // brake on
@@ -74,9 +93,13 @@ void loop()
         { // wait for start rise
             if ((millis() - enTime > EN_PERIOD) && (startNow == 1) && (startLast == 0))
             {
-                beep();
-                float target = MPU.roll;
+                offset1 = MPU.roll;
+                offset2 = MPU.pitch;
+                offset3 = MPU.yaw;
 
+                beep();
+                // float target = MotorAngles._yaw_t;
+                float target = MPU.yaw;
                 SerialBT.println("Control Enabled!");
                 SerialBT.print("- target = ");
                 SerialBT.println(target);
@@ -88,7 +111,8 @@ void loop()
         }
         else
         {
-            M1_Control.ControlUpdate(MPU.roll);
+            // M1_Control.ControlUpdate(MotorAngles._pitch_t); // MotorAngles._yaw_t);
+            M1_Control.ControlUpdate(MPU.yaw); // + MPU.pitch);
 
             if (startNow == 0)
             {
@@ -106,10 +130,22 @@ void loop()
     {
         Tuning();
         // MPU.GetMeasurement();
-        monitorVoltage(0);
+        monitorVoltage(1);
         previousT = currentT;
         if (useBT == 1)
         {
+            // Serial.print(MotorAngles._roll_t);
+            // Serial.print(", ");
+            Serial.print(M1_Control._error * 100);
+            Serial.print(", ");
+            // Serial.print(MotorAngles._yaw_t);
+            // Serial.print(", ");
+            Serial.print(MPU.roll - offset1);
+            Serial.print(", ");
+            Serial.print(MPU.pitch - offset2);
+            Serial.print(", ");
+            Serial.print(MPU.yaw - offset3);
+            Serial.println("");
             // SerialBT.print(M1_ENC._position);
             // SerialBT.print(", ");
             // SerialBT.print(M2_ENC._position);
@@ -121,12 +157,26 @@ void loop()
             SerialBT.print(MPU.pitch);
             SerialBT.print(", ");
             SerialBT.print(MPU.yaw);
+
+            // SerialBT.print(", ");
+            // SerialBT.print(MotorAngles._roll_t);
+            // SerialBT.print(", ");
+            // SerialBT.print(MotorAngles._pitch_t);
+            // SerialBT.print(", ");
+            // SerialBT.print(MotorAngles._yaw_t);
+
             // SerialBT.print(", ");
             // SerialBT.print(M1_Control._error);
-            // SerialBT.print(", ");
-            // SerialBT.print(M1_Control._out);
+            SerialBT.print(", ");
+            SerialBT.print(M1_Control._out);
+            SerialBT.print(", ");
+            SerialBT.print(M1_Control._out_full);
             SerialBT.print(", ");
             SerialBT.print(M1_Control._pwm);
+            SerialBT.print(", ");
+            SerialBT.print(M1_Control.GetTarget());
+            // SerialBT.print(", ");
+            // SerialBT.print(late);
             // SerialBT.print(", ");
             // SerialBT.print(lastTime);
 
@@ -159,23 +209,95 @@ void Tuning()
 {
     if (!SerialBT.available())
         return;
-    char param = SerialBT.read();
-    if (!SerialBT.available())
-        return;
     char cmd = SerialBT.read();
-    switch (param)
+    switch (cmd)
     {
-    case 'p':
-        if (cmd == '+' || cmd == '=')
+    case '1':
+        mode = 1;
+        break;
+    case '2':
+        mode = 2;
+        break;
+    case '3':
+        mode = 3;
+        break;
+    case '4':
+        mode = 4;
+        break;
+    case '5':
+        mode = 5;
+        break;
+    case '+':
+        if (mode == 1)
         {
-            M1_Control.SetGain(1.0, 4, 1);
-            SerialBT.println("p incremented");
+            fc *= 1.1;
+            SerialBT.print("increased fc = ");
+            SerialBT.println(fc);
         }
-        if (cmd == '-')
+        if (mode == 2)
         {
-            M1_Control.SetGain(-1.0, 4, 1);
-            SerialBT.println("p decremented");
+            fi *= 1.1;
+            SerialBT.print("increased fi = ");
+            SerialBT.println(fi);
         }
+        if (mode == 3)
+        {
+            flp *= 1.1;
+            SerialBT.print("increased flp = ");
+            SerialBT.println(flp);
+        }
+        if (mode == 4)
+        {
+            gain *= 1.1;
+            SerialBT.print("increased gain = ");
+            SerialBT.println(gain);
+        }
+        if (mode == 5)
+        {
+            phase += 0.25;
+            SerialBT.print("increased phase = ");
+            SerialBT.println(phase);
+        }
+        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
+        break;
+    case '-':
+        if (mode == 1)
+        {
+            fc *= 0.9;
+            SerialBT.print("increased fc = ");
+            SerialBT.println(fc);
+        }
+        if (mode == 2)
+        {
+            fi *= 0.9;
+            SerialBT.print("increased fi = ");
+            SerialBT.println(fi);
+        }
+        if (mode == 3)
+        {
+            flp *= 0.9;
+            SerialBT.print("increased flp = ");
+            SerialBT.println(flp);
+        }
+        if (mode == 4)
+        {
+            gain *= 0.9;
+            SerialBT.print("increased gain = ");
+            SerialBT.println(gain);
+        }
+        if (mode == 5)
+        {
+            phase -= 0.25;
+            if (phase < 0)
+                phase = 0;
+            SerialBT.print("increased phase = ");
+            SerialBT.println(phase);
+        }
+        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
+        break;
+    case 's':
+        M1_Control.Disable();
+        delay(2000);
         break;
     }
 }

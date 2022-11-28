@@ -18,7 +18,8 @@
 #define GYRO_CONFIG_2000 0x18
 #define GYRO_DATA_BASE_ADDR 0x43
 
-#define ACC_GYRO_FILTER 0.96
+#define ACC_GYRO_FILTER 0.999
+#define OUT_FILTER 0.95
 
 #define CAL_NUM 200
 

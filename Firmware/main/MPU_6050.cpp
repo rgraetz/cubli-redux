@@ -102,8 +102,11 @@ void MPU_6050::GetMeasurement()
         _AcZ = (short)((Wire.read() << 8) | Wire.read()) / _accel_scale; // Z-axis value [gees]
 
         // Calculating Roll and Pitch from the accelerometer data
-        _accAngleX = (atan(_AcY / sqrt(pow(_AcX, 2) + pow(_AcZ, 2))) * 180 / PI);      // + _accAngleX_Off;
+        _accAngleX = (atan(_AcY / sqrt(pow(_AcX, 2) + pow(_AcZ, 2))) * 180.0 / PI);    // + _accAngleX_Off;
         _accAngleY = (atan(-1 * _AcX / sqrt(pow(_AcY, 2) + pow(_AcZ, 2))) * 180 / PI); // + _accAngleY_Off;
+        // _accAngleY = atan2(-_AcX, copysign(sqrt(pow(_AcY, 2) + pow(_AcZ, 2)), _AcZ)) * 180.0 / PI;
+        // _accAngleX = atan2(_AcY, -_AcX) * 180.0 / PI;
+        // _accAngleY = atan2(_AcZ, -_AcX) * 180.0 / PI;
 
         _previousTime = _currentTime;
         _currentTime = millis();
