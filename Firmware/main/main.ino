@@ -1,41 +1,48 @@
 #include "main.h"
+#include "Kalman.h"
+
+Kalman kalman;
+float pitch;
 
 DigitalEncoder M1_ENC(M1_CHA_GPIO, M1_CHB_GPIO, 1);
 DigitalEncoder M2_ENC(M2_CHA_GPIO, M2_CHB_GPIO, 2);
 DigitalEncoder M3_ENC(M3_CHA_GPIO, M3_CHB_GPIO, 3);
 
 MPU_6050 MPU(MPU_ADDR, 0, 1);
-
+RobotCS RobotAngles(1);
 float u1[3] = {-0.81649658, 0.40824829, 0.40824829};
 float u2[3] = {0.0, -0.70710678, 0.70710678};
 float u3[3] = {0.57735027, 0.57735027, 0.57735027};
 AngleTransformation MotorAngles(u1, u2, u3);
 
-float fc = 10;
-float fi = 0.1;
-float flp = 500;
-float gain = 100.0;
-float phase = 11.0;
-ControlAlgo M1_Control(M1_DIR_GPIO, 1, M1_PWM_GPIO, 1);
-
-float offset1 = 0;
-float offset2 = 0;
-float offset3 = 0;
+// angle_acc control gains
+float fc = 10.0;
+float fi = 0.01;
+float flp = 500.0;
+float gain = 875.0;
+float phase = 8.0;
+float fc = 6.5;
+float fi = 0.01;
+float flp = 500.0;
+float gain = 400.0;
+float phase = 10.0;
+ControlAlgo M1_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 1);
 
 int control_State = 0;
 int late = 0;
-int mode = 0;
+int mode = -1;
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
 
 BluetoothSerial SerialBT;
-int useBT = 1;
+int diag = 1;
 
 void setup()
 {
     Serial.begin(115200);
+    Serial.print("State,Error*10,Pitch,AccY,GyroY,Out,PWM,Target");
     SerialBT.begin("ESP32_Cube");
     Serial.println("Application started");
 
@@ -71,8 +78,10 @@ void loop()
         late = millis() - lastTime - UPDATE_PERIOD;
         lastTime = millis();
         // update measurements
-        MPU.GetMeasurement();                                          // sensor coordinate system
-        MotorAngles.Transform(-MPU.roll, -MPU.pitch + 90.0, -MPU.yaw); // motor coordinate system, Note: negative to get RHR and offset of 90
+        MPU.GetMeasurement();                                                                                   // sensor coordinate system
+        RobotAngles.MPU2Robot(MPU._AcX, MPU._AcY, MPU._AcZ, MPU._gyroAngleX, MPU._gyroAngleY, MPU._gyroAngleZ); // robot coordinate system
+        // MotorAngles.Transform(RobotAngles.roll, RobotAngles.pitch, RobotAngles.yaw);                            // motor coordinate system
+        // pitch = kalman.getAngle(RobotAngles.accAngleY, MPU._gyroAngleY, 1.0);
 
         startNow = digitalRead(START_GPIO);
         if (control_State == 0)
@@ -80,12 +89,7 @@ void loop()
             control_State += 1;
 
             enTime = millis();
-
-            // float M1_gains[8] = {1.000000, -1.120198, 0.120198, 0.000000, 0.439970, 0.000138, 0.000000, 0.000000};
-            // float M1_gains[8] = {50.000000, 10000.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-            // M1_Control.SetGains(M1_gains);
             M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
-
             M1_Control.Disable();        // disable and reset control
             digitalWrite(EMO_GPIO, LOW); // brake on
         }
@@ -93,16 +97,11 @@ void loop()
         { // wait for start rise
             if ((millis() - enTime > EN_PERIOD) && (startNow == 1) && (startLast == 0))
             {
-                offset1 = MPU.roll;
-                offset2 = MPU.pitch;
-                offset3 = MPU.yaw;
-
                 beep();
-                // float target = MotorAngles._yaw_t;
-                float target = MPU.yaw;
-                SerialBT.println("Control Enabled!");
-                SerialBT.print("- target = ");
-                SerialBT.println(target);
+                float target = RobotAngles.pitch;
+                Serial.println("Control Enabled!");
+                Serial.print("- target = ");
+                Serial.println(target);
 
                 M1_Control.SetTarget(target);
                 control_State++;
@@ -111,10 +110,9 @@ void loop()
         }
         else
         {
-            // M1_Control.ControlUpdate(MotorAngles._pitch_t); // MotorAngles._yaw_t);
-            M1_Control.ControlUpdate(MPU.yaw); // + MPU.pitch);
-
-            if (startNow == 0)
+            // int retVal = M1_Control.ControlUpdate((RobotAngles.roll + RobotAngles.pitch) / 2.0);
+            int retVal = M1_Control.ControlUpdate(RobotAngles.pitch);
+            if (retVal < 0 || startNow == 0)
             {
                 SerialBT.println("Control Disabled...");
                 control_State = 0;
@@ -129,66 +127,36 @@ void loop()
     if (currentT - previousT >= pos_time)
     {
         Tuning();
-        // MPU.GetMeasurement();
         monitorVoltage(1);
         previousT = currentT;
-        if (useBT == 1)
+        if (diag == 1)
         {
-            // Serial.print(MotorAngles._roll_t);
+            Serial.print(M1_Control._error, 6);
+            Serial.print(", ");
+
+            // Serial.print(MPU._AcX, 6);
             // Serial.print(", ");
-            Serial.print(M1_Control._error * 100);
-            Serial.print(", ");
-            // Serial.print(MotorAngles._yaw_t);
+            // Serial.print(MPU._AcY, 6);
             // Serial.print(", ");
-            Serial.print(MPU.roll - offset1);
-            Serial.print(", ");
-            Serial.print(MPU.pitch - offset2);
-            Serial.print(", ");
-            Serial.print(MPU.yaw - offset3);
-            Serial.println("");
-            // SerialBT.print(M1_ENC._position);
-            // SerialBT.print(", ");
-            // SerialBT.print(M2_ENC._position);
-            // SerialBT.print(", ");
-            // SerialBT.print(M3_ENC._position);
-            // SerialBT.print(", ");
-            SerialBT.print(MPU.roll);
-            SerialBT.print(", ");
-            SerialBT.print(MPU.pitch);
-            SerialBT.print(", ");
-            SerialBT.print(MPU.yaw);
+            // Serial.print(MPU._AcZ, 6);
+            // Serial.print(", ");
 
-            // SerialBT.print(", ");
-            // SerialBT.print(MotorAngles._roll_t);
-            // SerialBT.print(", ");
-            // SerialBT.print(MotorAngles._pitch_t);
-            // SerialBT.print(", ");
-            // SerialBT.print(MotorAngles._yaw_t);
-
-            // SerialBT.print(", ");
-            // SerialBT.print(M1_Control._error);
-            SerialBT.print(", ");
-            SerialBT.print(M1_Control._out);
-            SerialBT.print(", ");
-            SerialBT.print(M1_Control._out_full);
-            SerialBT.print(", ");
-            SerialBT.print(M1_Control._pwm);
-            SerialBT.print(", ");
-            SerialBT.print(M1_Control.GetTarget());
-            // SerialBT.print(", ");
-            // SerialBT.print(late);
-            // SerialBT.print(", ");
-            // SerialBT.print(lastTime);
-
-            SerialBT.println("");
-        }
-        else
-        {
-            Serial.print(MPU.roll);
+            Serial.print(RobotAngles.pitch, 6);
             Serial.print(", ");
-            Serial.print(MPU.pitch);
+            Serial.print(RobotAngles.accAngleY, 6);
             Serial.print(", ");
-            Serial.print(MPU.yaw);
+            Serial.print(MPU._gyroAngleY, 6);
+            Serial.print(", ");
+
+            Serial.print(M1_Control._out, 6);
+            Serial.print(", ");
+            Serial.print(M1_Control._out_calc, 6);
+            Serial.print(", ");
+            Serial.print(M1_Control._pwm, 6);
+            Serial.print(", ");
+            Serial.print(M1_Control.GetTarget(), 6);
+            Serial.print(", ");
+
             Serial.println("");
         }
     }
@@ -207,9 +175,9 @@ void monitorVoltage(int buzz)
 
 void Tuning()
 {
-    if (!SerialBT.available())
+    if (!Serial.available())
         return;
-    char cmd = SerialBT.read();
+    char cmd = Serial.read();
     switch (cmd)
     {
     case '1':
@@ -227,36 +195,51 @@ void Tuning()
     case '5':
         mode = 5;
         break;
+    case '6':
+        mode = 6;
+        break;
+    case '7':
+        mode = 7;
+        break;
+    case '8':
+        mode = 8;
+        break;
+    case '9':
+        mode = 9;
+        break;
+    case '0':
+        mode = 0;
+        break;
     case '+':
         if (mode == 1)
         {
             fc *= 1.1;
-            SerialBT.print("increased fc = ");
-            SerialBT.println(fc);
+            Serial.print("increased fc = ");
+            Serial.println(fc);
         }
         if (mode == 2)
         {
             fi *= 1.1;
-            SerialBT.print("increased fi = ");
-            SerialBT.println(fi);
+            Serial.print("increased fi = ");
+            Serial.println(fi);
         }
         if (mode == 3)
         {
             flp *= 1.1;
-            SerialBT.print("increased flp = ");
-            SerialBT.println(flp);
+            Serial.print("increased flp = ");
+            Serial.println(flp);
         }
         if (mode == 4)
         {
             gain *= 1.1;
-            SerialBT.print("increased gain = ");
-            SerialBT.println(gain);
+            Serial.print("increased gain = ");
+            Serial.println(gain);
         }
         if (mode == 5)
         {
             phase += 0.25;
-            SerialBT.print("increased phase = ");
-            SerialBT.println(phase);
+            Serial.print("increased phase = ");
+            Serial.println(phase);
         }
         M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
         break;
@@ -264,34 +247,34 @@ void Tuning()
         if (mode == 1)
         {
             fc *= 0.9;
-            SerialBT.print("increased fc = ");
-            SerialBT.println(fc);
+            Serial.print("decreased fc = ");
+            Serial.println(fc);
         }
         if (mode == 2)
         {
             fi *= 0.9;
-            SerialBT.print("increased fi = ");
-            SerialBT.println(fi);
+            Serial.print("decreased fi = ");
+            Serial.println(fi);
         }
         if (mode == 3)
         {
             flp *= 0.9;
-            SerialBT.print("increased flp = ");
-            SerialBT.println(flp);
+            Serial.print("decreased flp = ");
+            Serial.println(flp);
         }
         if (mode == 4)
         {
             gain *= 0.9;
-            SerialBT.print("increased gain = ");
-            SerialBT.println(gain);
+            Serial.print("decreased gain = ");
+            Serial.println(gain);
         }
         if (mode == 5)
         {
             phase -= 0.25;
             if (phase < 0)
-                phase = 0;
-            SerialBT.print("increased phase = ");
-            SerialBT.println(phase);
+                phase = 0.0;
+            Serial.print("decreased phase = ");
+            Serial.println(phase);
         }
         M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
         break;

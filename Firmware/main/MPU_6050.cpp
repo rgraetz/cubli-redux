@@ -78,6 +78,8 @@ void MPU_6050::Init()
         Serial.print("MPU_6050::Init(): ERROR invalid accelerometer configuration provided ");
         Serial.println(_acc_config);
     }
+    // TODO: coinfigure filter
+    WriteTo(_MPU_addr, 0x1A, 0x00);
 
     _gyroAngleX = 0.0;
     _gyroAngleY = 0.0;
@@ -87,6 +89,10 @@ void MPU_6050::Init()
     _initialized = 1;
     // run sensor offset calibration
     Calibrate();
+
+    // initial value
+    _gyroAngleX = _accAngleX;
+    _gyroAngleY = _accAngleY;
 }
 
 void MPU_6050::GetMeasurement()
@@ -101,64 +107,21 @@ void MPU_6050::GetMeasurement()
         _AcY = (short)((Wire.read() << 8) | Wire.read()) / _accel_scale; // Y-axis value [gees]
         _AcZ = (short)((Wire.read() << 8) | Wire.read()) / _accel_scale; // Z-axis value [gees]
 
-        // Calculating Roll and Pitch from the accelerometer data
-        _accAngleX = (atan(_AcY / sqrt(pow(_AcX, 2) + pow(_AcZ, 2))) * 180.0 / PI);    // + _accAngleX_Off;
-        _accAngleY = (atan(-1 * _AcX / sqrt(pow(_AcY, 2) + pow(_AcZ, 2))) * 180 / PI); // + _accAngleY_Off;
-        // _accAngleY = atan2(-_AcX, copysign(sqrt(pow(_AcY, 2) + pow(_AcZ, 2)), _AcZ)) * 180.0 / PI;
-        // _accAngleX = atan2(_AcY, -_AcX) * 180.0 / PI;
-        // _accAngleY = atan2(_AcZ, -_AcX) * 180.0 / PI;
-
         _previousTime = _currentTime;
         _currentTime = millis();
         float elapsedTime = (_currentTime - _previousTime) / 1000.0;
 
-        Wire.beginTransmission(_MPU_addr);                              // Start communication with MPU6050 // MPU=0x68
-        Wire.write(GYRO_DATA_BASE_ADDR);                                // acceleration base address
-        Wire.endTransmission(false);                                    //
-        Wire.requestFrom(_MPU_addr, 6, true);                           // Read 6 registers total, each axis value is stored in 2 registers
-        _GyX = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale; // X-axis value [deg/s]
-        _GyY = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale; // Y-axis value [deg/s]
-        _GyZ = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale; // Z-axis value [deg/s]
+        Wire.beginTransmission(_MPU_addr);                                         // Start communication with MPU6050 // MPU=0x68
+        Wire.write(GYRO_DATA_BASE_ADDR);                                           // acceleration base address
+        Wire.endTransmission(false);                                               //
+        Wire.requestFrom(_MPU_addr, 6, true);                                      // Read 6 registers total, each axis value is stored in 2 registers
+        _GyX = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale + _GyX_Off; // X-axis value [deg/s]
+        _GyY = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale + _GyY_Off; // Y-axis value [deg/s]
+        _GyZ = (short)((Wire.read() << 8) | Wire.read()) / _gyro_scale + _GyZ_Off; // Z-axis value [deg/s]
 
-        // apply calibration offsets
-        _GyX += _GyX_Off;
-        _GyY += _GyY_Off;
-        _GyZ += _GyZ_Off;
-
-        _gyroAngleX += _GyX * elapsedTime;
-        _gyroAngleY += _GyY * elapsedTime;
-        _gyroAngleZ += _GyZ * elapsedTime;
-
-        // sensor fusion and compensation for giroscope drift
-        _gyroAngleZ = ACC_GYRO_FILTER * _gyroAngleZ + (1 - ACC_GYRO_FILTER) * _accAngleX;
-        _gyroAngleY = ACC_GYRO_FILTER * _gyroAngleY + (1 - ACC_GYRO_FILTER) * _accAngleY;
-
-        roll = _gyroAngleZ;
-        pitch = _gyroAngleY;
-        yaw = _gyroAngleX;
-
-        // Serial.print(_AcX);
-        // Serial.print(", ");
-        // Serial.print(_AcY);
-        // Serial.print(", ");
-        // Serial.print(_AcZ);
-        // Serial.print(", ");
-        // Serial.print(_GyX);
-        // Serial.print(", ");
-        // Serial.print(_GyY);
-        // Serial.print(", ");
-        // Serial.print(_GyZ);
-        // Serial.print(", ");
-        // Serial.print(_accAngleX);
-        // Serial.print(", ");
-        // Serial.print(_accAngleY);
-        // Serial.print(", ");
-        // Serial.print(_gyroAngleX);
-        // Serial.print(", ");
-        // Serial.print(_gyroAngleY);
-        // Serial.print(", ");
-        // Serial.print(_gyroAngleZ);
-        // Serial.println("");
+        _gyroAngleX = _GyX * elapsedTime;
+        _gyroAngleY = _GyY * elapsedTime;
+        _gyroAngleZ = _GyZ * elapsedTime;
     }
     else
         Serial.println("MPU_6050::GetMeasurement(): ERROR cannot take measurement before class is initialized");

@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 
+#define ACC_GYRO_FILTER 0.95
+#define ACC_FILTER 0.95
+
 class Euler
 {
 public:
@@ -35,6 +38,19 @@ private:
     // Euler _input, _output;
     // Quaternion q1, q2, q3;
     // Euler e1, e2, e3;
+};
+
+class RobotCS
+{
+public:
+    RobotCS(int type);
+    void MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
+    float roll, pitch, yaw;
+    float accAngleX, accAngleY, accAngleZ;
+
+private:
+    int _type;
+    int _initialized;
 };
 
 #endif

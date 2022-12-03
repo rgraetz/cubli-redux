@@ -10,7 +10,9 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
     _DIR_GPIO = DIR_GPIO;
     _PWM_GPIO = PWM_GPIO;
 
-    _MAX_OUT = (1 << TIMER_BIT) - 1;
+    _PWM_MAX = (1 << TIMER_BIT) - 1;
+
+    _MAX_OUT = 255;
     _MIN_OUT = -_MAX_OUT;
 
     _WINDUP = 0.05;
@@ -21,10 +23,9 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
 
     // default values
     _target = 0;
-    _error = 0;
     _out = 0;
-    _diff_error = 0;
-    _int_error = 0;
+    _error = 0;
+    _ramp_time = 0;
     for (int i = 0; i < 8; i++)
         _gains[i] = 0;
 }
@@ -37,8 +38,7 @@ void ControlAlgo::SetTarget(float target)
 void ControlAlgo::SetGains(float gains[8])
 {
     for (int i = 0; i < 8; i++)
-        _gains[i] = gains[i];
-    // _gains = gains;
+        _gains[i] = _gains[i];
 }
 
 void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase)
@@ -50,9 +50,10 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
 
     double a0, a1, a2, a3;
     double b0, b1, b2, b3;
-    double K = gain * wi;
+    double K;
     if (phase > 0)
     {
+        K = gain * wi / a;
         a0 = (2 * Ts2 * a * wc * wi * wlp + 4 * Ts * a * wc * wi + 4 * Ts * wi * wlp + 8 * wi);
         a1 = (2 * Ts2 * a * wc * wi * wlp - 4 * Ts * a * wc * wi - 4 * Ts * wi * wlp - 24 * wi);
         a2 = (-2 * Ts2 * a * wc * wi * wlp - 4 * Ts * a * wc * wi - 4 * Ts * wi * wlp + 24 * wi);
@@ -65,6 +66,7 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     }
     else
     {
+        K = gain * wi;
         b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
         b1 = 2 * K * Ts2 * wi * wlp;
         b2 = K * Ts2 * wi * wlp - 2 * K * Ts * wlp;
@@ -76,20 +78,7 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         a3 = 0;
     }
 
-    _out = 0;
-    _diff_error = 0;
-    _int_error = 0;
-    UpdateOutput(_out);
-    _inputs[0] = 0.0;
-    _inputs[1] = 0.0;
-    _inputs[2] = 0.0;
-    _inputs[3] = 0.0;
-
-    _outputs[0] = 0.0;
-    _outputs[1] = 0.0;
-    _outputs[2] = 0.0;
-    _outputs[3] = 0.0;
-
+    Disable();
     _gains[0] = a0 / a0;
     _gains[1] = a1 / a0;
     _gains[2] = a2 / a0;
@@ -100,54 +89,54 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     _gains[6] = b2 / a0;
     _gains[7] = b3 / a0;
 
-    // Serial.print("Inputs = ");
-    // Serial.print(wc, 8);
-    // Serial.print(",");
-    // Serial.print(wi, 8);
-    // Serial.print(",");
-    // Serial.print(wlp, 8);
-    // Serial.print(",");
-    // Serial.print(gain, 8);
-    // Serial.print(",");
-    // Serial.print(phase, 8);
-    // Serial.println("");
+    Serial.print("Inputs = ");
+    Serial.print(wc, 8);
+    Serial.print(",");
+    Serial.print(wi, 8);
+    Serial.print(",");
+    Serial.print(wlp, 8);
+    Serial.print(",");
+    Serial.print(gain, 8);
+    Serial.print(",");
+    Serial.print(phase, 8);
+    Serial.println("");
 
-    // Serial.print("Gains = ");
-    // Serial.print(_gains[0], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[1], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[2], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[3], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[4], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[5], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[6], 8);
-    // Serial.print(",");
-    // Serial.print(_gains[7], 8);
-    // Serial.println("");
-    // Serial.print("Calc = ");
-    // Serial.print(K, 8);
-    // Serial.print(",");
-    // Serial.print(a0, 8);
-    // Serial.print(",");
-    // Serial.print(a1, 8);
-    // Serial.print(",");
-    // Serial.print(a2, 8);
-    // Serial.print(",");
-    // Serial.print(a3, 8);
-    // Serial.print(",");
-    // Serial.print(b0, 8);
-    // Serial.print(",");
-    // Serial.print(b1, 8);
-    // Serial.print(",");
-    // Serial.print(b2, 8);
-    // Serial.print(",");
-    // Serial.print(b3, 8);
-    // Serial.println("");
+    Serial.print("Gains = ");
+    Serial.print(_gains[0], 8);
+    Serial.print(",");
+    Serial.print(_gains[1], 8);
+    Serial.print(",");
+    Serial.print(_gains[2], 8);
+    Serial.print(",");
+    Serial.print(_gains[3], 8);
+    Serial.print(",");
+    Serial.print(_gains[4], 8);
+    Serial.print(",");
+    Serial.print(_gains[5], 8);
+    Serial.print(",");
+    Serial.print(_gains[6], 8);
+    Serial.print(",");
+    Serial.print(_gains[7], 8);
+    Serial.println("");
+    Serial.print("Calc = ");
+    Serial.print(K, 8);
+    Serial.print(",");
+    Serial.print(a0, 8);
+    Serial.print(",");
+    Serial.print(a1, 8);
+    Serial.print(",");
+    Serial.print(a2, 8);
+    Serial.print(",");
+    Serial.print(a3, 8);
+    Serial.print(",");
+    Serial.print(b0, 8);
+    Serial.print(",");
+    Serial.print(b1, 8);
+    Serial.print(",");
+    Serial.print(b2, 8);
+    Serial.print(",");
+    Serial.print(b3, 8);
+    Serial.println("");
 }
 
 float ControlAlgo::GetTarget()
@@ -171,9 +160,10 @@ float ControlAlgo::GetGain(int i)
 void ControlAlgo::Disable()
 {
     _out = 0;
-    _diff_error = 0;
-    _int_error = 0;
+    _error = 0;
+    _ramp_time = 0;
     UpdateOutput(_out);
+
     _inputs[0] = 0.0;
     _inputs[1] = 0.0;
     _inputs[2] = 0.0;
@@ -185,18 +175,18 @@ void ControlAlgo::Disable()
     _outputs[3] = 0.0;
 }
 
-void ControlAlgo::ControlUpdate(float angle)
+int ControlAlgo::ControlUpdate(float angle)
 {
     // target control loop
     // - sets target to achieve low motor speed
-    // _target += 0.000025 * _out;
-    // _target += 0.0005 * _error;
+    // _target -= 0.000004 * _out;
+    _target -= 0.00001 * _out;
+    // _target += 0.000005 * _out;
 
     // target dither
-    float dither = 0; // 0.05 * sin(2 * PI * millis() / 2000);
+    float dither = 0.25 * sin(2 * PI * millis() / 5000);
 
     // angle control loop
-    // - sets motor speed to achieve angle
     _error = (angle - _target - dither);
     _inputs[3] = _inputs[2];
     _inputs[2] = _inputs[1];
@@ -207,11 +197,8 @@ void ControlAlgo::ControlUpdate(float angle)
     _outputs[2] = _outputs[1];
     _outputs[1] = _outputs[0];
     _outputs[0] = (-_gains[1] * _outputs[1] - _gains[2] * _outputs[2] - _gains[3] * _outputs[3] + _gains[4] * _inputs[0] + _gains[5] * _inputs[1] + _gains[6] * _inputs[2] + _gains[7] * _inputs[3]) / _gains[0];
-    // _diff_error = 0.1 * (_inputs[0] - _inputs[1]) + 0.9 * _diff_error;
-    // _int_error = constrain(_int_error + _gains[2] * _error, -255, 255);
-    // _outputs[0] = _gains[0] * _inputs[0] + _gains[1] * _diff_error + _int_error;
 
-    // wind-up protection
+    // - wind-up protection
     float scale = 1;
     if (_outputs[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
         scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs[0];
@@ -230,19 +217,26 @@ void ControlAlgo::ControlUpdate(float angle)
         _outputs[2] *= scale;
         _outputs[3] *= scale;
     }
-    _out_full = _outputs[0];
-    // if (abs(_error) > 0.5)
-    //     _out = constrain(_out + _outputs[0], _MIN_OUT, _MAX_OUT); // cumulative output, converting accel/force to speed
-    // _out = constrain(_outputs[0], _MIN_OUT, _MAX_OUT); // cumulative output, converting accel/force to speed
-    // if (abs(_error) < 1)                                      // TODO: configurable threshold
-    //     _out = 0.95 * _out;                                   // leaky always tries to zero speed
-    _out = constrain(_out + _outputs[0], -100, 100); // cumulative output, converting accel/force to speed
+    _out_calc = _outputs[0];
+
+    // output update
+    // _out = constrain(_out + _outputs[0], _MIN_OUT, _MAX_OUT); // cumulative output, converting accel/force to speed
+    if (_ramp_time < EN_RAMP)
+        _ramp_time++;
+    _out = (_ramp_time / EN_RAMP) * constrain(_out + _outputs[0], -100, 100); // cumulative output, converting accel/force to speed
+
+    // control leak
+    if (abs(_error) < 0.1)  // TODO: configurable threshold and leak rate
+        _out = 0.95 * _out; // leaky always tries to zero speed
 
     UpdateOutput(_out);
+
+    return 0;
 }
 
 void ControlAlgo::UpdateOutput(float output)
 {
+    // output = constrain(output, _MIN_OUT, _MAX_OUT);
     // set direction GPIO
     if ((output > 0) ^ (_invertDir == 1))
         digitalWrite(_DIR_GPIO, HIGH);
@@ -250,11 +244,9 @@ void ControlAlgo::UpdateOutput(float output)
         digitalWrite(_DIR_GPIO, LOW);
 
     // set PWM duty cycle
-    if (output > _MAX_OUT)
-        ledcWrite(_pwmChannel, (_invertOut == 0) ? _MAX_OUT : 0);
-    else if (output < _MIN_OUT)
-        ledcWrite(_pwmChannel, (_invertOut == 0) ? _MAX_OUT : 0);
+    if (output > _MAX_OUT || output < _MIN_OUT)
+        _pwm = (_invertOut == 0) ? _MAX_OUT : _PWM_MAX - _MAX_OUT;
     else
-        ledcWrite(_pwmChannel, (_invertOut == 0) ? abs(output) : (uint8_t)(_MAX_OUT - abs(output)));
-    _pwm = ledcRead(_pwmChannel);
+        _pwm = (_invertOut == 0) ? abs(output) : (uint8_t)(_PWM_MAX - abs(output));
+    ledcWrite(_pwmChannel, _pwm);
 }

@@ -84,3 +84,42 @@ void AngleTransformation::Transform(float roll, float pitch, float yaw)
     _pitch_t = e1._pitch + e2._pitch + e3._pitch;
     _yaw_t = e1._yaw + e2._yaw + e3._yaw;
 }
+
+RobotCS::RobotCS(int type)
+{
+    _initialized = 0;
+    _type = type;
+    roll = 0;
+    pitch = 0;
+    yaw = 0;
+
+    accAngleX = 0.0;
+    accAngleY = 0.0;
+}
+
+void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ)
+{
+    // absolute accelerometer angle
+    float AcMag = sqrt(pow(accX, 2) + pow(accY, 2) + pow(accZ, 2));
+    if (_initialized == 0)
+    {
+        _initialized = 1;
+        accAngleX = (atan2(accY, AcMag) * 180.0 / PI);
+        accAngleY = (atan2(-accZ, AcMag) * 180.0 / PI);
+
+        roll = accAngleX;
+        pitch = accAngleY;
+    }
+    accAngleX = ACC_FILTER * accAngleX + (1 - ACC_FILTER) * (atan2(accY, AcMag) * 180.0 / PI);
+    accAngleY = ACC_FILTER * accAngleY + (1 - ACC_FILTER) * (atan2(-accZ, AcMag) * 180.0 / PI);
+    // accAngleX = (atan2(accY, AcMag) * 180.0 / PI);
+    // accAngleY = (atan2(-accZ, AcMag) * 180.0 / PI);
+
+    roll += gyroZ; // gyroZ used for this MPU to robot orientation
+    pitch += gyroY;
+    yaw += gyroX; // gyroX used for this MPU to robot orientation
+
+    // accelerometer/gyroscope sensor fusion
+    roll = ACC_GYRO_FILTER * roll + (1 - ACC_GYRO_FILTER) * accAngleX;
+    pitch = ACC_GYRO_FILTER * pitch + (1 - ACC_GYRO_FILTER) * accAngleY;
+}

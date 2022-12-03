@@ -18,10 +18,10 @@
 #define GYRO_CONFIG_2000 0x18
 #define GYRO_DATA_BASE_ADDR 0x43
 
-#define ACC_GYRO_FILTER 0.999
-#define OUT_FILTER 0.95
+#define ACC_GYRO_FILTER 0.95
+#define ACC_FILTER 0.99
 
-#define CAL_NUM 200
+#define CAL_NUM 500
 
 class MPU_6050
 {
@@ -31,6 +31,10 @@ public:
     void GetMeasurement();
     float roll, pitch, yaw;
 
+    float _AcX, _AcY, _AcZ;
+    float _GyX, _GyY, _GyZ;
+    float _gyroAngleX, _gyroAngleY, _gyroAngleZ;
+
 private:
     int _MPU_addr;
     int _acc_config, _gyro_config;
@@ -38,12 +42,9 @@ private:
     float _accel_scale;
     float _gyro_scale;
     float _previousTime, _currentTime;
-    float _gyroAngleX, _gyroAngleY, _gyroAngleZ;
-    float _AcX, _AcY, _AcZ;
-    float _GyX, _GyY, _GyZ;
+
     float _accAngleX, _accAngleY;
     // calibration offset(s)
-    // float _AcX_Off, _AcY_Off, _AcZ_Off;
     float _accAngleX_Off, _accAngleY_Off;
     float _GyX_Off, _GyY_Off, _GyZ_Off;
     void Calibrate();
