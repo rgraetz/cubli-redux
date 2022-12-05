@@ -1,8 +1,4 @@
 #include "main.h"
-#include "Kalman.h"
-
-Kalman kalman;
-float pitch;
 
 DigitalEncoder M1_ENC(M1_CHA_GPIO, M1_CHB_GPIO, 1);
 DigitalEncoder M2_ENC(M2_CHA_GPIO, M2_CHB_GPIO, 2);
@@ -15,20 +11,18 @@ float u2[3] = {0.0, -0.70710678, 0.70710678};
 float u3[3] = {0.57735027, 0.57735027, 0.57735027};
 AngleTransformation MotorAngles(u1, u2, u3);
 
-// angle_acc control gains
-float fc = 10.0;
+float fc = 7.0;
 float fi = 0.01;
 float flp = 500.0;
-float gain = 875.0;
-float phase = 8.0;
-float fc = 6.5;
-float fi = 0.01;
-float flp = 500.0;
-float gain = 400.0;
+float gain = 200.0;
 float phase = 10.0;
-ControlAlgo M1_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 1);
+ControlAlgo M1_Control(M1_DIR_GPIO, 1, M1_PWM_GPIO, 1); // Z-direction motor "black"
+ControlAlgo M2_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 2); // Y-direction motor "silver"
+ControlAlgo M3_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 3); // X-direction motor "purple"
 
-int control_State = 0;
+int current_State = 0;
+int next_State = 0;
+int control_Error = 0;
 int late = 0;
 int mode = -1;
 
@@ -37,7 +31,9 @@ int mode = -1;
 #endif
 
 BluetoothSerial SerialBT;
-int diag = 1;
+int diag = 0;
+float frf_amp = 50;
+float frf_freq = 1.0;
 
 void setup()
 {
@@ -54,85 +50,294 @@ void setup()
     pinMode(BATT_AIN, INPUT);
 
     // MPU initialization
-    beep();
+    beep(1);
     MPU.Init();
-    beep();
+    beep(1);
 }
 
-void beep()
+void beep(int num)
 {
-    digitalWrite(BUZZ_GPIO, HIGH);
-    delay(70);
-    digitalWrite(BUZZ_GPIO, LOW);
+    for (int i = 0; i < num; i++)
+    {
+        digitalWrite(BUZZ_GPIO, HIGH);
+        delay(70);
+        digitalWrite(BUZZ_GPIO, LOW);
+        if (i < num - 1)
+            delay(70);
+    }
+}
+
+void Stop()
+{
+    // disable and reset control
+    M1_Control.Disable();
+    M2_Control.Disable();
+    M3_Control.Disable();
+    digitalWrite(EMO_GPIO, LOW); // brake on
 }
 
 void loop()
 {
-    // M1_ENC.UpdatePosition();
-    // M2_ENC.UpdatePosition();
-    // M3_ENC.UpdatePosition();
-
-    // CONTROL ENABLE/DISABLE LOGIC
-    if (millis() - lastTime >= UPDATE_PERIOD)
+    // CONTROL STATE MACHINE
+    current_State = next_State;
+    if (current_State == INIT) // initialization state
     {
-        late = millis() - lastTime - UPDATE_PERIOD;
-        lastTime = millis();
+        // update transition timing
+        edge1_t = millis();
+        edge2_t = millis();
+        edge3_t = millis();
+
+        // move to next state
+        next_State = IDLE;
+    }
+    else if (current_State == IDLE) // wait for control inputs
+    {
+        if ((abs(RobotAngles.roll - EDGE1_R) > EDGE_TOLERANCE) || (abs(RobotAngles.pitch - EDGE1_P) > EDGE_TOLERANCE) || (digitalRead(START_GPIO) == 0))
+            edge1_t = millis();
+        if ((abs(RobotAngles.roll - EDGE2_R) > EDGE_TOLERANCE) || (abs(RobotAngles.pitch - EDGE2_P) > EDGE_TOLERANCE) || (digitalRead(START_GPIO) == 0))
+            edge2_t = millis();
+        if ((abs(RobotAngles.roll - EDGE3_R) > EDGE_TOLERANCE) || (abs(RobotAngles.pitch - EDGE3_P) > EDGE_TOLERANCE) || (digitalRead(START_GPIO) == 0))
+            edge3_t = millis();
+        if ((abs(RobotAngles.roll - CORNER_R) > EDGE_TOLERANCE) || (abs(RobotAngles.pitch - CORNER_P) > EDGE_TOLERANCE) || (digitalRead(START_GPIO) == 0))
+            corner_t = millis();
+
+        if (millis() - edge1_t > EN_PERIOD_MSEC)
+        {
+            Serial.println("Edge 1 Control Enabled!");
+            beep(1);
+            next_State = EDGE1;
+        }
+        else if (millis() - edge2_t > EN_PERIOD_MSEC)
+        {
+            Serial.println("Edge 2 Control Enabled!");
+            beep(2);
+            next_State = EDGE2;
+        }
+        else if (millis() - edge3_t > EN_PERIOD_MSEC)
+        {
+            Serial.println("Edge 3 Control Enabled!");
+            beep(3);
+            next_State = EDGE3;
+        }
+        else if (millis() - corner_t > EN_PERIOD_MSEC)
+        {
+            Serial.println("Corner Control Enabled!");
+            beep(4);
+            next_State = CORNER;
+        }
+    }
+    else
+    {
+        if ((control_Error > 0) || (digitalRead(START_GPIO) == 0))
+        {
+            Serial.println("Control Disabled...");
+            beep(1);
+            next_State = INIT;
+        }
+    }
+
+    // MEASUREMENT UPDATE
+    if (micros() - measurement_t >= MEASUREMENT_PERIOD_USEC)
+    {
+        // measurement update time
+        measurement_late = micros() - measurement_t - MEASUREMENT_PERIOD_USEC;
+        measurement_t = micros();
+
         // update measurements
         MPU.GetMeasurement();                                                                                   // sensor coordinate system
         RobotAngles.MPU2Robot(MPU._AcX, MPU._AcY, MPU._AcZ, MPU._gyroAngleX, MPU._gyroAngleY, MPU._gyroAngleZ); // robot coordinate system
         // MotorAngles.Transform(RobotAngles.roll, RobotAngles.pitch, RobotAngles.yaw);                            // motor coordinate system
-        // pitch = kalman.getAngle(RobotAngles.accAngleY, MPU._gyroAngleY, 1.0);
+    }
 
-        startNow = digitalRead(START_GPIO);
-        if (control_State == 0)
-        { // disabled, init control gains
-            control_State += 1;
-
-            enTime = millis();
-            M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
-            M1_Control.Disable();        // disable and reset control
-            digitalWrite(EMO_GPIO, LOW); // brake on
+    // CONTROL UPDATE
+    if (micros() - control_t >= CONTROL_PERIOD_USEC)
+    {
+        // control update time
+        control_late = micros() - control_t - CONTROL_PERIOD_USEC;
+        control_t = micros();
+        if (current_State == INIT)
+        {
+            // set control gains
+            M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+            M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+            M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+            // stop motors
+            Stop();
         }
-        else if (control_State == 1)
-        { // wait for start rise
-            if ((millis() - enTime > EN_PERIOD) && (startNow == 1) && (startLast == 0))
-            {
-                beep();
-                float target = RobotAngles.pitch;
-                Serial.println("Control Enabled!");
-                Serial.print("- target = ");
-                Serial.println(target);
-
-                M1_Control.SetTarget(target);
-                control_State++;
-                digitalWrite(EMO_GPIO, HIGH); // brake off
-            }
+        else if (current_State == IDLE)
+        {
+            // stop motors
+            Stop();
+            // set control target
+            M1_Control.SetTarget(RobotAngles.roll + RobotAngles.pitch);
+            // M2_Control.SetTarget(-target);
+            // M3_Control.SetTarget(-target);
+        }
+        else if (current_State == EDGE1)
+        {
+            // brake off
+            digitalWrite(EMO_GPIO, HIGH);
+            control_Error = M1_Control.ControlUpdate(RobotAngles.roll + RobotAngles.pitch);
+            M2_Control.Disable();
+            M3_Control.Disable();
+            // M1_Control.SetOutput(frf_amp * sin(frf_freq * millis() / 1000 * 2 * PI));
+        }
+        else if (current_State == EDGE2)
+        {
+            // brake off
+            digitalWrite(EMO_GPIO, HIGH);
+            M1_Control.Disable();
+            control_Error = M2_Control.ControlUpdate(-RobotAngles.pitch);
+            M3_Control.Disable();
+        }
+        else if (current_State == EDGE3)
+        {
+            // brake off
+            digitalWrite(EMO_GPIO, HIGH);
+            M1_Control.Disable();
+            M2_Control.Disable();
+            control_Error = M3_Control.ControlUpdate(-RobotAngles.pitch);
+        }
+        else if (current_State == CORNER)
+        {
+            // brake off
+            digitalWrite(EMO_GPIO, HIGH);
+            control_Error = M1_Control.ControlUpdate(-RobotAngles.pitch) +
+                            M2_Control.ControlUpdate(-RobotAngles.pitch) +
+                            M3_Control.ControlUpdate(-RobotAngles.pitch);
         }
         else
         {
-            // int retVal = M1_Control.ControlUpdate((RobotAngles.roll + RobotAngles.pitch) / 2.0);
-            int retVal = M1_Control.ControlUpdate(RobotAngles.pitch);
-            if (retVal < 0 || startNow == 0)
-            {
-                SerialBT.println("Control Disabled...");
-                control_State = 0;
-            }
+            Serial.println("Error: Incorrect control state...");
+            throw std::invalid_argument("Incorrect control state");
         }
-
-        startLast = startNow;
     }
 
+    //     startNow = digitalRead(START_GPIO);
+    //     if (control_State == 0) // control setup
+    //     {                       // disabled, init control gains
+    //         control_State += 1;
+    //         enTime = millis();
+    //         Stop();
+    //     }
+    //     else if (control_State == 1)
+    //     { // wait for start rise
+    //         if ((millis() - enTime > EN_PERIOD) && (startNow == 1) && (startLast == 0))
+    //         {
+    //             M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+    //             M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+    //             M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+
+    //             beep();
+    //             float target = RobotAngles.pitch;
+    //             Serial.println("Control Enabled!");
+    //             Serial.print("- target = ");
+    //             Serial.println(target);
+
+    //             // M3_Control.SetTarget(target);
+    //             M1_Control.SetTarget(-target);
+    //             control_State++;
+    //             digitalWrite(EMO_GPIO, HIGH); // brake off
+    //         }
+    //     }
+    //     else
+    //     {
+    //         // int retVal = M3_Control.ControlUpdate(RobotAngles.pitch);
+    //         int retVal = M1_Control.ControlUpdate(-RobotAngles.pitch);
+    //         if (retVal < 0 || startNow == 0)
+    //         {
+    //             SerialBT.println("Control Disabled...");
+    //             control_State = 0;
+    //         }
+    //     }
+
+    //     startLast = startNow;
+    // }
+
     // DIAGNOSTIC LOGGING
-    currentT = millis();
-    if (currentT - previousT >= pos_time)
+    if (millis() - diagnostic_t >= DIAGNOSTIC_PERIOD_MSEC)
     {
+        // diagnostic update time
+        diagnostic_late = millis() - diagnostic_t - DIAGNOSTIC_PERIOD_MSEC;
+        diagnostic_t = millis();
+
         Tuning();
         monitorVoltage(1);
-        previousT = currentT;
         if (diag == 1)
         {
-            Serial.print(M1_Control._error, 6);
-            Serial.print(", ");
+            if ((current_State == EDGE1)) // || (current_State == IDLE))
+            {
+                Serial.print("Error:");
+                Serial.print(M1_Control._error, 6);
+                Serial.print(",");
+                Serial.print("Angle:");
+                Serial.print(RobotAngles.roll + RobotAngles.pitch, 6);
+                Serial.print(",");
+                Serial.print("MotorAcc:");
+                Serial.print(M1_Control._out_calc, 6);
+                Serial.print(", ");
+                Serial.print("MotorVel:");
+                Serial.print(M1_Control._out, 6);
+                Serial.print(", ");
+                Serial.print("PWM:");
+                Serial.print(M1_Control._pwm, 6);
+                Serial.print(", ");
+                Serial.print("Target:");
+                Serial.print(M1_Control.GetTarget(), 6);
+                Serial.print(", ");
+                Serial.print("MeasLate:");
+                Serial.print(measurement_late, 6);
+
+                Serial.println("");
+            }
+            else
+            {
+                // Serial.print("AccX:");
+                // Serial.print(MPU._AcX, 6);
+                // Serial.print(", ");
+                // Serial.print("AccY:");
+                // Serial.print(MPU._AcY, 6);
+                // Serial.print(", ");
+                // Serial.print("AccZ:");
+                // Serial.print(MPU._AcZ, 6);
+                // Serial.print(", ");
+                Serial.print("AccXf:");
+                Serial.print(RobotAngles.GetAccX(), 6);
+                Serial.print(", ");
+                Serial.print("AccYf:");
+                Serial.print(RobotAngles.GetAccY(), 6);
+                Serial.print(", ");
+                Serial.print("AccZf:");
+                Serial.print(RobotAngles.GetAccZ(), 6);
+                Serial.print(", ");
+                Serial.print("AccAngleX:");
+                Serial.print(RobotAngles.accAngleX, 6);
+                Serial.print(", ");
+                Serial.print("AccAngleY:");
+                Serial.print(RobotAngles.accAngleY, 6);
+                Serial.print(", ");
+                Serial.print("Roll:");
+                Serial.print(RobotAngles.roll, 6);
+                Serial.print(", ");
+                Serial.print("Pitch:");
+                Serial.print(RobotAngles.pitch, 6);
+                // Serial.print(", ");
+                // Serial.print("PWM:");
+                // Serial.print(M1_Control._pwm, 6);
+                Serial.print(", ");
+                Serial.print("MeasLate:");
+                Serial.print(measurement_late, 6);
+
+                Serial.println("");
+            }
+            // Serial.print(M1_Control._error, 6);
+            // Serial.print(", ");
+            // // Serial.print(RobotAngles.roll, 6);
+            // // Serial.print(", ");
+            // Serial.print(-RobotAngles.pitch, 6);
+            // Serial.print(", ");
+            // // Serial.print(-RobotAngles.accAngleY, 6);
+            // // Serial.print(", ");
 
             // Serial.print(MPU._AcX, 6);
             // Serial.print(", ");
@@ -140,24 +345,44 @@ void loop()
             // Serial.print(", ");
             // Serial.print(MPU._AcZ, 6);
             // Serial.print(", ");
+            // Serial.print(MPU._AcZ - 0.001  * M1_Control._out_calc, 6);
+            // Serial.print(", ");
 
-            Serial.print(RobotAngles.pitch, 6);
-            Serial.print(", ");
-            Serial.print(RobotAngles.accAngleY, 6);
-            Serial.print(", ");
-            Serial.print(MPU._gyroAngleY, 6);
-            Serial.print(", ");
+            // // Serial.print(M1_Control._out, 6);
+            // // Serial.print(", ");
+            // Serial.print(M1_Control._out_calc, 6);
+            // Serial.print(", ");
+            // Serial.print(M1_Control._pwm, 6);
+            // Serial.print(", ");
+            // Serial.print(M1_Control.GetTarget(), 6);
+            // Serial.print(", ");
 
-            Serial.print(M1_Control._out, 6);
-            Serial.print(", ");
-            Serial.print(M1_Control._out_calc, 6);
-            Serial.print(", ");
-            Serial.print(M1_Control._pwm, 6);
-            Serial.print(", ");
-            Serial.print(M1_Control.GetTarget(), 6);
-            Serial.print(", ");
+            // Serial.println("");
 
-            Serial.println("");
+            // accel filter validation
+            // Serial.print(MPU._AcX, 6);
+            // Serial.print(", ");
+            // Serial.print(MPU._AcY, 6);
+            // Serial.print(", ");
+            // Serial.print(MPU._AcZ, 6);
+            // Serial.print(", ");
+
+            // Serial.print(RobotAngles.GetAccX(), 6);
+            // Serial.print(", ");
+            // Serial.print(RobotAngles.GetAccY(), 6);
+            // Serial.print(", ");
+            // Serial.print(RobotAngles.GetAccZ(), 6);
+            // Serial.print(", ");
+
+            // Serial.println("");
+
+            // SerialBT.print(RobotAngles.roll, 6);
+            // SerialBT.print(", ");
+            // SerialBT.print(RobotAngles.pitch, 6);
+            // SerialBT.print(", ");
+            // SerialBT.print(RobotAngles.yaw, 6);
+            // SerialBT.print(", ");
+            // SerialBT.println("");
         }
     }
 }
@@ -170,7 +395,7 @@ void monitorVoltage(int buzz)
     // SerialBT.print(voltage);
     // SerialBT.println(" V");
     if (voltage > 8 && voltage < 9.5 && buzz == 1)
-        beep();
+        beep(1);
 }
 
 void Tuning()
@@ -180,6 +405,12 @@ void Tuning()
     char cmd = Serial.read();
     switch (cmd)
     {
+    case 'd':
+        if (diag == 1)
+            diag = 0;
+        else
+            diag = 1;
+        break;
     case '1':
         mode = 1;
         break;
@@ -237,11 +468,16 @@ void Tuning()
         }
         if (mode == 5)
         {
-            phase += 0.25;
+            if (phase < 1.0)
+                phase = 1.0;
+            else
+                phase += 0.25;
             Serial.print("increased phase = ");
             Serial.println(phase);
         }
-        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
+        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
+        M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
         break;
     case '-':
         if (mode == 1)
@@ -271,15 +507,19 @@ void Tuning()
         if (mode == 5)
         {
             phase -= 0.25;
-            if (phase < 0)
+            if (phase < 1.0)
                 phase = 0.0;
             Serial.print("decreased phase = ");
             Serial.println(phase);
         }
-        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase);
+        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
+        M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
         break;
     case 's':
         M1_Control.Disable();
+        M2_Control.Disable();
+        M3_Control.Disable();
         delay(2000);
         break;
     }

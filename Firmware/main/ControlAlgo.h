@@ -2,6 +2,7 @@
 #define CONTROL_H
 
 #include <Arduino.h>
+#include "common.h"
 
 #define TIMER_BIT 8
 #define PWM_BASE_FREQ 15000
@@ -19,7 +20,8 @@ public:
 
     float GetTarget();
     float GetGain(int i);
-    void CalcGains(float wc, float wi, float wlp, float gain, float phase);
+    void CalcGains(float wc, float wi, float wlp, float gain, float phase, int print);
+    void SetOutput(float output);
 
     float _error;
     float _out_calc, _out, _pwm;

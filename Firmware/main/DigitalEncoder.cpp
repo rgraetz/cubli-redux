@@ -10,6 +10,8 @@ DigitalEncoder::DigitalEncoder(int CHA_GPIO, int CHB_GPIO, int motorNum)
     _previous_state = _current_state;
     _position = 0;
     _motorNum = motorNum;
+
+    _errorMsg = 0;
 }
 
 void DigitalEncoder::UpdatePosition()
@@ -24,12 +26,15 @@ void DigitalEncoder::UpdatePosition()
             _position++;
         else if (_current_state != 0)
         {
-            Serial.print("ERROR invalid state transition on encoder ");
-            Serial.print(_motorNum);
-            Serial.print(", ");
-            Serial.print(_current_state);
-            Serial.print(", ");
-            Serial.println(_previous_state);
+            if (_errorMsg == 1)
+            {
+                Serial.print("ERROR invalid state transition on encoder ");
+                Serial.print(_motorNum);
+                Serial.print(", ");
+                Serial.print(_current_state);
+                Serial.print(", ");
+                Serial.println(_previous_state);
+            }
         }
         break;
     case 1: // CHA = 1, CHB = 0
@@ -39,12 +44,15 @@ void DigitalEncoder::UpdatePosition()
             _position++;
         else if (_current_state != 1)
         {
-            Serial.print("ERROR invalid state transition on encoder ");
-            Serial.print(_motorNum);
-            Serial.print(", ");
-            Serial.print(_current_state);
-            Serial.print(", ");
-            Serial.println(_previous_state);
+            if (_errorMsg == 1)
+            {
+                Serial.print("ERROR invalid state transition on encoder ");
+                Serial.print(_motorNum);
+                Serial.print(", ");
+                Serial.print(_current_state);
+                Serial.print(", ");
+                Serial.println(_previous_state);
+            }
         }
         break;
     case 3: // CHA = 1, CHB = 1
@@ -54,12 +62,15 @@ void DigitalEncoder::UpdatePosition()
             _position++;
         else if (_current_state != 3)
         {
-            Serial.print("ERROR invalid state transition on encoder ");
-            Serial.print(_motorNum);
-            Serial.print(", ");
-            Serial.print(_current_state);
-            Serial.print(", ");
-            Serial.println(_previous_state);
+            if (_errorMsg == 1)
+            {
+                Serial.print("ERROR invalid state transition on encoder ");
+                Serial.print(_motorNum);
+                Serial.print(", ");
+                Serial.print(_current_state);
+                Serial.print(", ");
+                Serial.println(_previous_state);
+            }
         }
         break;
     case 2: // CHA = 0, CHB = 1
@@ -69,12 +80,15 @@ void DigitalEncoder::UpdatePosition()
             _position++;
         else if (_current_state != 2)
         {
-            Serial.print("ERROR invalid state transition on encoder ");
-            Serial.print(_motorNum);
-            Serial.print(", ");
-            Serial.print(_current_state);
-            Serial.print(", ");
-            Serial.println(_previous_state);
+            if (_errorMsg == 1)
+            {
+                Serial.print("ERROR invalid state transition on encoder ");
+                Serial.print(_motorNum);
+                Serial.print(", ");
+                Serial.print(_current_state);
+                Serial.print(", ");
+                Serial.println(_previous_state);
+            }
         }
         break;
     default:

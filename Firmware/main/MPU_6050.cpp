@@ -108,8 +108,8 @@ void MPU_6050::GetMeasurement()
         _AcZ = (short)((Wire.read() << 8) | Wire.read()) / _accel_scale; // Z-axis value [gees]
 
         _previousTime = _currentTime;
-        _currentTime = millis();
-        float elapsedTime = (_currentTime - _previousTime) / 1000.0;
+        _currentTime = micros();
+        float elapsedTime = (_currentTime - _previousTime) / 1000000.0;
 
         Wire.beginTransmission(_MPU_addr);                                         // Start communication with MPU6050 // MPU=0x68
         Wire.write(GYRO_DATA_BASE_ADDR);                                           // acceleration base address

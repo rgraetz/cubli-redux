@@ -95,25 +95,35 @@ RobotCS::RobotCS(int type)
 
     accAngleX = 0.0;
     accAngleY = 0.0;
+
+    // discrete filters for acceleration noise reduction
+    // set filter coefficients -> 2nd order butterworth low pass at 2Hz
+    accXf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
+    accYf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
+    accZf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
 }
 
 void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ)
 {
+    // acceleration filter
+    accXf.Update(accX);
+    accYf.Update(accY);
+    accZf.Update(accZ);
+
     // absolute accelerometer angle
-    float AcMag = sqrt(pow(accX, 2) + pow(accY, 2) + pow(accZ, 2));
+    float AcMag = sqrt(pow(accXf.GetLatest(), 2) + pow(accYf.GetLatest(), 2) + pow(accZf.GetLatest(), 2));
     if (_initialized == 0)
     {
         _initialized = 1;
-        accAngleX = (atan2(accY, AcMag) * 180.0 / PI);
-        accAngleY = (atan2(-accZ, AcMag) * 180.0 / PI);
-
         roll = accAngleX;
         pitch = accAngleY;
     }
-    accAngleX = ACC_FILTER * accAngleX + (1 - ACC_FILTER) * (atan2(accY, AcMag) * 180.0 / PI);
-    accAngleY = ACC_FILTER * accAngleY + (1 - ACC_FILTER) * (atan2(-accZ, AcMag) * 180.0 / PI);
-    // accAngleX = (atan2(accY, AcMag) * 180.0 / PI);
-    // accAngleY = (atan2(-accZ, AcMag) * 180.0 / PI);
+    // accAngleX = (atan2(accYf.GetLatest(), AcMag) * 180.0 / PI);
+    // accAngleY = (atan2(-accZf.GetLatest(), AcMag) * 180.0 / PI);
+    accAngleX = (atan2(accYf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
+    accAngleY = -(atan2(accZf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
+    // accAngleX = (atan2(accY, -accX) * 180.0 / PI);
+    // accAngleY = -(atan2(accZ, -accX) * 180.0 / PI);
 
     roll += gyroZ; // gyroZ used for this MPU to robot orientation
     pitch += gyroY;
@@ -123,3 +133,7 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
     roll = ACC_GYRO_FILTER * roll + (1 - ACC_GYRO_FILTER) * accAngleX;
     pitch = ACC_GYRO_FILTER * pitch + (1 - ACC_GYRO_FILTER) * accAngleY;
 }
+
+float RobotCS::GetAccX() { return this->accXf.GetLatest(); };
+float RobotCS::GetAccY() { return this->accYf.GetLatest(); };
+float RobotCS::GetAccZ() { return this->accZf.GetLatest(); };

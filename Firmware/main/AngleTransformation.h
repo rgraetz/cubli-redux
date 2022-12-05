@@ -2,9 +2,11 @@
 #define ANGLE_TRANSFORM_H
 
 #include <Arduino.h>
+#include "common.h"
+#include "DiscreteFilter.h"
 
-#define ACC_GYRO_FILTER 0.95
-#define ACC_FILTER 0.95
+#define ACC_GYRO_FILTER 0.98
+#define ACC_FILTER 2.0
 
 class Euler
 {
@@ -35,9 +37,6 @@ public:
 
 private:
     float _u1[3], _u2[3], _u3[3];
-    // Euler _input, _output;
-    // Quaternion q1, q2, q3;
-    // Euler e1, e2, e3;
 };
 
 class RobotCS
@@ -47,10 +46,16 @@ public:
     void MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
     float roll, pitch, yaw;
     float accAngleX, accAngleY, accAngleZ;
+    float GetAccX();
+    float GetAccY();
+    float GetAccZ();
 
 private:
     int _type;
     int _initialized;
+    int _val;
+
+    DiscreteFilter accXf, accYf, accZf;
 };
 
 #endif

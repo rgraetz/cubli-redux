@@ -8,8 +8,9 @@ class DigitalEncoder
 public:
     DigitalEncoder(int CHA_GPIO, int CHB_GPIO, int motorNum);
     void UpdatePosition();
-    int _position;
+    float _position;
     int _previous_state, _current_state;
+    int _errorMsg;
 
 private:
     int GetState();
