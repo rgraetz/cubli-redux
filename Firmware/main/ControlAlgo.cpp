@@ -41,6 +41,52 @@ void ControlAlgo::SetGains(float gains[8])
         _gains[i] = _gains[i];
 }
 
+void ControlAlgo::LeakGains(float wc, float wlp, float gain)
+{
+    float integralTol = 0.000001;
+
+    double Ts = CONTROL_PERIOD_USEC / 1E6;
+    double Ts2 = Ts * Ts;
+    double Ts3 = Ts * Ts;
+
+    double a0, a1, a2, a3;
+    double b0, b1, b2, b3;
+    double K;
+
+    K = 2.0 / (wc * wc);
+    // leaky
+    b0 = 4 * K * wc * wc;
+    b1 = -8 * K * wc * wc;
+    b2 = 4 * K * wc * wc;
+    b3 = 0.0;
+
+    a0 = Ts * Ts * wc * wc + 4 * Ts * wc + 4;
+    a1 = 2 * Ts * Ts * wc * wc - 8;
+    a2 = Ts * Ts * wc * wc - 4 * Ts * wc + 4;
+    a3 = 0.0;
+    // leaky with low pass
+    b0 = 4 * K * Ts * wc * wc * wlp;
+    b1 = -4 * K * Ts * wc * wc * wlp;
+    b2 = -4 * K * Ts * wc * wc * wlp;
+    b3 = +4 * K * Ts * wc * wc * wlp;
+
+    a0 = Ts * Ts * Ts * wc * wc * wlp + 2 * Ts * Ts * wc * wc + 4 * Ts * Ts * wc * wlp + 8 * Ts * wc + 4 * Ts * wlp + 8;
+    a1 = 3 * Ts * Ts * Ts * wc * wc * wlp + 2 * Ts * Ts * wc * wc + 4 * Ts * Ts * wc * wlp - 8 * Ts * wc - 4 * Ts * wlp - 24;
+    a2 = 3 * Ts * Ts * Ts * wc * wc * wlp - 2 * Ts * Ts * wc * wc - 4 * Ts * Ts * wc * wlp - 8 * Ts * wc - 4 * Ts * wlp + 24;
+    a3 = Ts * Ts * Ts * wc * wc * wlp - 2 * Ts * Ts * wc * wc - 4 * Ts * Ts * wc * wlp + 8 * Ts * wc + 4 * Ts * wlp - 8;
+
+    Disable();
+    _gains[0] = a0 / a0;
+    _gains[1] = a1 / a0;
+    _gains[2] = a2 / a0;
+    _gains[3] = a3 / a0;
+
+    _gains[4] = b0 / a0;
+    _gains[5] = b1 / a0;
+    _gains[6] = b2 / a0;
+    _gains[7] = b3 / a0;
+}
+
 void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase, int print)
 {
     float integralTol = 0.000001;

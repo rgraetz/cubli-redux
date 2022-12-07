@@ -475,9 +475,10 @@ void Tuning()
             Serial.print("increased phase = ");
             Serial.println(phase);
         }
-        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
-        M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        // M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
+        // M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        // M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        M1_Control.LeakGains(fc * 2 * PI, flp * 2 * PI, gain);
         break;
     case '-':
         if (mode == 1)
@@ -512,9 +513,10 @@ void Tuning()
             Serial.print("decreased phase = ");
             Serial.println(phase);
         }
-        M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
-        M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        // M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
+        // M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        // M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+        M1_Control.LeakGains(fc * 2 * PI, flp * 2 * PI, gain);
         break;
     case 's':
         M1_Control.Disable();

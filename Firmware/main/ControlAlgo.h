@@ -21,6 +21,7 @@ public:
     float GetTarget();
     float GetGain(int i);
     void CalcGains(float wc, float wi, float wlp, float gain, float phase, int print);
+    void LeakGains(float wc, float wlp, float gain);
     void SetOutput(float output);
 
     float _error;
