@@ -120,10 +120,14 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
     }
     // accAngleX = (atan2(accYf.GetLatest(), AcMag) * 180.0 / PI);
     // accAngleY = (atan2(-accZf.GetLatest(), AcMag) * 180.0 / PI);
-    accAngleX = (atan2(accYf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
-    accAngleY = -(atan2(accZf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
-    // accAngleX = (atan2(accY, -accX) * 180.0 / PI);
-    // accAngleY = -(atan2(accZ, -accX) * 180.0 / PI);
+    // accAngleX = (atan2(accYf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
+    // accAngleY = -(atan2(accZf.GetLatest(), -accXf.GetLatest()) * 180.0 / PI);
+    accAngleX = (atan2(accY, -accX) * 180.0 / PI);
+    accAngleY = -(atan2(accZ, -accX) * 180.0 / PI);
+
+    gyroAngleX = gyroZ;
+    gyroAngleY = gyroY;
+    gyroAngleZ = gyroX;
 
     roll += gyroZ; // gyroZ used for this MPU to robot orientation
     pitch += gyroY;

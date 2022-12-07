@@ -11,11 +11,20 @@ float u2[3] = {0.0, -0.70710678, 0.70710678};
 float u3[3] = {0.57735027, 0.57735027, 0.57735027};
 AngleTransformation MotorAngles(u1, u2, u3);
 
-float fc = 7.0;
-float fi = 0.01;
-float flp = 500.0;
-float gain = 200.0;
-float phase = 10.0;
+// GYROSCOPE CONTROL GAINS
+float fc1 = 10.0;
+float fi1 = 0.0;
+float flp1 = 40.0;
+float gain1 = 1000.0;
+float phase1 = 3.0;
+
+// ACCELEROMETER CONTROL GAINS
+float fc2 = 1.0;
+float fi2 = 0.01;
+float flp2 = 10.0;
+float gain2 = 2.0;
+float phase2 = 0.0;
+
 ControlAlgo M1_Control(M1_DIR_GPIO, 1, M1_PWM_GPIO, 1); // Z-direction motor "black"
 ControlAlgo M2_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 2); // Y-direction motor "silver"
 ControlAlgo M3_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 3); // X-direction motor "purple"
@@ -158,9 +167,13 @@ void loop()
         if (current_State == INIT)
         {
             // set control gains
-            M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-            M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-            M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
+            M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+            M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+            M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+
+            M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+            M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+            M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
             // stop motors
             Stop();
         }
@@ -169,7 +182,7 @@ void loop()
             // stop motors
             Stop();
             // set control target
-            M1_Control.SetTarget(RobotAngles.roll + RobotAngles.pitch);
+            M1_Control.SetTarget(RobotAngles.pitch);
             // M2_Control.SetTarget(-target);
             // M3_Control.SetTarget(-target);
         }
@@ -177,7 +190,8 @@ void loop()
         {
             // brake off
             digitalWrite(EMO_GPIO, HIGH);
-            control_Error = M1_Control.ControlUpdate(RobotAngles.roll + RobotAngles.pitch);
+            // control_Error = M1_Control.ControlUpdate(RobotAngles.pitch);
+            control_Error = M1_Control.ControlUpdate(RobotAngles.gyroAngleY, RobotAngles.accAngleY);
             M2_Control.Disable();
             M3_Control.Disable();
             // M1_Control.SetOutput(frf_amp * sin(frf_freq * millis() / 1000 * 2 * PI));
@@ -187,7 +201,7 @@ void loop()
             // brake off
             digitalWrite(EMO_GPIO, HIGH);
             M1_Control.Disable();
-            control_Error = M2_Control.ControlUpdate(-RobotAngles.pitch);
+            // control_Error = M2_Control.ControlUpdate(-RobotAngles.pitch);
             M3_Control.Disable();
         }
         else if (current_State == EDGE3)
@@ -196,15 +210,15 @@ void loop()
             digitalWrite(EMO_GPIO, HIGH);
             M1_Control.Disable();
             M2_Control.Disable();
-            control_Error = M3_Control.ControlUpdate(-RobotAngles.pitch);
+            // control_Error = M3_Control.ControlUpdate(-RobotAngles.pitch);
         }
         else if (current_State == CORNER)
         {
             // brake off
             digitalWrite(EMO_GPIO, HIGH);
-            control_Error = M1_Control.ControlUpdate(-RobotAngles.pitch) +
-                            M2_Control.ControlUpdate(-RobotAngles.pitch) +
-                            M3_Control.ControlUpdate(-RobotAngles.pitch);
+            // control_Error = M1_Control.ControlUpdate(-RobotAngles.pitch) +
+            //                 M2_Control.ControlUpdate(-RobotAngles.pitch) +
+            //                 M3_Control.ControlUpdate(-RobotAngles.pitch);
         }
         else
         {
@@ -267,20 +281,29 @@ void loop()
         {
             if ((current_State == EDGE1)) // || (current_State == IDLE))
             {
-                Serial.print("Error:");
-                Serial.print(M1_Control._error, 6);
+                Serial.print("ErrorGyro:");
+                Serial.print(M1_Control._error1, 6);
+                Serial.print(",");
+                Serial.print("ErrorAcc:");
+                Serial.print(M1_Control._error2, 6);
                 Serial.print(",");
                 Serial.print("Angle:");
-                Serial.print(RobotAngles.roll + RobotAngles.pitch, 6);
+                Serial.print(RobotAngles.pitch, 6);
+                Serial.print(",");
+                Serial.print("AngleGyro:");
+                Serial.print(RobotAngles.gyroAngleY, 6);
+                Serial.print(",");
+                Serial.print("AngleAcc:");
+                Serial.print(RobotAngles.accAngleY, 6);
                 Serial.print(",");
                 Serial.print("MotorAcc:");
-                Serial.print(M1_Control._out_calc, 6);
+                Serial.print(M1_Control._accel_out, 6);
                 Serial.print(", ");
                 Serial.print("MotorVel:");
-                Serial.print(M1_Control._out, 6);
-                Serial.print(", ");
-                Serial.print("PWM:");
-                Serial.print(M1_Control._pwm, 6);
+                Serial.print(M1_Control._velocity_out, 6);
+                // Serial.print(", ");
+                // Serial.print("PWM:");
+                // Serial.print(M1_Control._pwm, 6);
                 Serial.print(", ");
                 Serial.print("Target:");
                 Serial.print(M1_Control.GetTarget(), 6);
@@ -444,79 +467,154 @@ void Tuning()
     case '+':
         if (mode == 1)
         {
-            fc *= 1.1;
-            Serial.print("increased fc = ");
-            Serial.println(fc);
+            fc1 *= 1.1;
+            Serial.print("increased fc1 = ");
+            Serial.println(fc1);
         }
         if (mode == 2)
         {
-            fi *= 1.1;
-            Serial.print("increased fi = ");
-            Serial.println(fi);
+            fi1 *= 1.1;
+            Serial.print("increased fi1 = ");
+            Serial.println(fi1);
         }
         if (mode == 3)
         {
-            flp *= 1.1;
-            Serial.print("increased flp = ");
-            Serial.println(flp);
+            flp1 *= 1.1;
+            Serial.print("increased flp1 = ");
+            Serial.println(flp1);
         }
         if (mode == 4)
         {
-            gain *= 1.1;
-            Serial.print("increased gain = ");
-            Serial.println(gain);
+            gain1 *= 1.1;
+            Serial.print("increased gain1 = ");
+            Serial.println(gain1);
         }
         if (mode == 5)
         {
-            if (phase < 1.0)
-                phase = 1.0;
+            if (phase1 < 1.0)
+                phase1 = 1.0;
             else
-                phase += 0.25;
-            Serial.print("increased phase = ");
-            Serial.println(phase);
+                phase1 += 0.25;
+            Serial.print("increased phase1 = ");
+            Serial.println(phase1);
         }
-        // M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
-        // M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        // M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        M1_Control.LeakGains(fc * 2 * PI, flp * 2 * PI, gain);
+        if (mode == 6)
+        {
+            fc2 *= 1.1;
+            Serial.print("increased fc2 = ");
+            Serial.println(fc2);
+        }
+        if (mode == 7)
+        {
+            fi2 *= 1.1;
+            Serial.print("increased fi2 = ");
+            Serial.println(fi2);
+        }
+        if (mode == 8)
+        {
+            flp2 *= 1.1;
+            Serial.print("increased flp2 = ");
+            Serial.println(flp2);
+        }
+        if (mode == 9)
+        {
+            gain2 *= 1.1;
+            Serial.print("increased gain2 = ");
+            Serial.println(gain2);
+        }
+        if (mode == 0)
+        {
+            if (phase2 < 1.0)
+                phase2 = 1.0;
+            else
+                phase2 += 0.25;
+            Serial.print("increased phase2 = ");
+            Serial.println(phase2);
+        }
+
+        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 1);
+        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+
+        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 1);
+        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+
         break;
     case '-':
         if (mode == 1)
         {
-            fc *= 0.9;
-            Serial.print("decreased fc = ");
-            Serial.println(fc);
+            fc1 *= 0.9;
+            Serial.print("decreased fc1 = ");
+            Serial.println(fc1);
         }
         if (mode == 2)
         {
-            fi *= 0.9;
-            Serial.print("decreased fi = ");
-            Serial.println(fi);
+            fi1 *= 0.9;
+            Serial.print("decreased fi1 = ");
+            Serial.println(fi1);
         }
         if (mode == 3)
         {
-            flp *= 0.9;
-            Serial.print("decreased flp = ");
-            Serial.println(flp);
+            flp1 *= 0.9;
+            Serial.print("decreased flp1 = ");
+            Serial.println(flp1);
         }
         if (mode == 4)
         {
-            gain *= 0.9;
-            Serial.print("decreased gain = ");
-            Serial.println(gain);
+            gain1 *= 0.9;
+            Serial.print("decreased gain1 = ");
+            Serial.println(gain1);
         }
         if (mode == 5)
         {
-            phase -= 0.25;
-            if (phase < 1.0)
-                phase = 0.0;
-            Serial.print("decreased phase = ");
-            Serial.println(phase);
+            phase1 -= 0.25;
+            if (phase1 < 1.0)
+                phase1 = 0.0;
+            Serial.print("decreased phase1 = ");
+            Serial.println(phase1);
         }
-        // M1_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 1);
-        // M2_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        // M3_Control.CalcGains(fc * 2 * PI, fi * 2 * PI, flp * 2 * PI, gain, phase, 0);
-        M1_Control.LeakGains(fc * 2 * PI, flp * 2 * PI, gain);
+        if (mode == 6)
+        {
+            fc2 *= 0.9;
+            Serial.print("decreased fc2 = ");
+            Serial.println(fc2);
+        }
+        if (mode == 7)
+        {
+            fi2 *= 0.9;
+            Serial.print("decreased fi2 = ");
+            Serial.println(fi2);
+        }
+        if (mode == 8)
+        {
+            flp2 *= 0.9;
+            Serial.print("decreased flp2 = ");
+            Serial.println(flp2);
+        }
+        if (mode == 9)
+        {
+            gain2 *= 0.9;
+            Serial.print("decreased gain2 = ");
+            Serial.println(gain2);
+        }
+        if (mode == 0)
+        {
+            phase2 -= 0.25;
+            if (phase2 < 1.0)
+                phase2 = 0.0;
+            Serial.print("decreased phase2 = ");
+            Serial.println(phase2);
+        }
+
+        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 1);
+        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+
+        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 1);
+        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+
         break;
     case 's':
         M1_Control.Disable();

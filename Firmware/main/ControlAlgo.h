@@ -8,24 +8,27 @@
 #define PWM_BASE_FREQ 15000
 #define EN_RAMP 200
 
+#define CONTROL_GYRO 0
+#define CONTROL_ACCEL 1
+
 class ControlAlgo
 {
 public:
     ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum);
-    int ControlUpdate(float angle);
+    int ControlUpdate(float gyro_angle, float acc_angle);
     void Disable();
     void SetTarget(float target);
-    void SetGains(float gains[8]);
-    void SetGain(float gain, int i, int relative);
+    void SetGains(float gains[8], int type);
+    void SetGain(float gain, int i, int relative, int type);
 
     float GetTarget();
-    float GetGain(int i);
-    void CalcGains(float wc, float wi, float wlp, float gain, float phase, int print);
+    float GetGain(int i, int type);
+    void CalcGains(float wc, float wi, float wlp, float gain, float phase, int type, int print);
     void LeakGains(float wc, float wlp, float gain);
     void SetOutput(float output);
 
-    float _error;
-    float _out_calc, _out, _pwm;
+    float _error1, _error2;
+    float _accel_out, _velocity_out, _pwm;
 
 private:
     int _pwmChannel, _motorNum;
@@ -35,9 +38,13 @@ private:
 
     int _invertDir, _invertOut;
 
-    float _gains[8];
-    float _inputs[4];
-    float _outputs[4];
+    float _gains1[8];
+    float _inputs1[4];
+    float _outputs1[4];
+
+    float _gains2[8];
+    float _inputs2[4];
+    float _outputs2[4];
 
     float _target;
     float _ramp_time;

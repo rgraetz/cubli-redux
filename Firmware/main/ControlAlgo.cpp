@@ -23,11 +23,16 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
 
     // default values
     _target = 0;
-    _out = 0;
-    _error = 0;
+    _accel_out = 0;
+    _velocity_out = 0;
+    _error1 = 0;
+    _error2 = 0;
     _ramp_time = 0;
     for (int i = 0; i < 8; i++)
-        _gains[i] = 0;
+    {
+        _gains1[i] = 0;
+        _gains2[i] = 0;
+    }
 }
 
 void ControlAlgo::SetTarget(float target)
@@ -35,59 +40,16 @@ void ControlAlgo::SetTarget(float target)
     _target = target;
 }
 
-void ControlAlgo::SetGains(float gains[8])
+void ControlAlgo::SetGains(float gains[8], int type)
 {
     for (int i = 0; i < 8; i++)
-        _gains[i] = _gains[i];
+        if (type == CONTROL_GYRO)
+            _gains1[i] = gains[i];
+        else if (type == CONTROL_ACCEL)
+            _gains2[i] = gains[i];
 }
 
-void ControlAlgo::LeakGains(float wc, float wlp, float gain)
-{
-    float integralTol = 0.000001;
-
-    double Ts = CONTROL_PERIOD_USEC / 1E6;
-    double Ts2 = Ts * Ts;
-    double Ts3 = Ts * Ts;
-
-    double a0, a1, a2, a3;
-    double b0, b1, b2, b3;
-    double K;
-
-    K = 2.0 / (wc * wc);
-    // leaky
-    b0 = 4 * K * wc * wc;
-    b1 = -8 * K * wc * wc;
-    b2 = 4 * K * wc * wc;
-    b3 = 0.0;
-
-    a0 = Ts * Ts * wc * wc + 4 * Ts * wc + 4;
-    a1 = 2 * Ts * Ts * wc * wc - 8;
-    a2 = Ts * Ts * wc * wc - 4 * Ts * wc + 4;
-    a3 = 0.0;
-    // leaky with low pass
-    b0 = 4 * K * Ts * wc * wc * wlp;
-    b1 = -4 * K * Ts * wc * wc * wlp;
-    b2 = -4 * K * Ts * wc * wc * wlp;
-    b3 = +4 * K * Ts * wc * wc * wlp;
-
-    a0 = Ts * Ts * Ts * wc * wc * wlp + 2 * Ts * Ts * wc * wc + 4 * Ts * Ts * wc * wlp + 8 * Ts * wc + 4 * Ts * wlp + 8;
-    a1 = 3 * Ts * Ts * Ts * wc * wc * wlp + 2 * Ts * Ts * wc * wc + 4 * Ts * Ts * wc * wlp - 8 * Ts * wc - 4 * Ts * wlp - 24;
-    a2 = 3 * Ts * Ts * Ts * wc * wc * wlp - 2 * Ts * Ts * wc * wc - 4 * Ts * Ts * wc * wlp - 8 * Ts * wc - 4 * Ts * wlp + 24;
-    a3 = Ts * Ts * Ts * wc * wc * wlp - 2 * Ts * Ts * wc * wc - 4 * Ts * Ts * wc * wlp + 8 * Ts * wc + 4 * Ts * wlp - 8;
-
-    Disable();
-    _gains[0] = a0 / a0;
-    _gains[1] = a1 / a0;
-    _gains[2] = a2 / a0;
-    _gains[3] = a3 / a0;
-
-    _gains[4] = b0 / a0;
-    _gains[5] = b1 / a0;
-    _gains[6] = b2 / a0;
-    _gains[7] = b3 / a0;
-}
-
-void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase, int print)
+void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase, int type, int print)
 {
     float integralTol = 0.000001;
 
@@ -99,199 +61,117 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     double a0, a1, a2, a3;
     double b0, b1, b2, b3;
     double K;
-    if (phase > 0) // include lead-lag
+
+    if (type == CONTROL_GYRO)
     {
-        if (wi / (2 * PI) > integralTol) // include integral
+        // double whp = wlp;
+        // Serial.println("Gyroscope Controller -> Lead Lag + High pass");
+        // K = gain / a;
+        // b0 = 2 * K * Ts * a * wc + 4 * K * a * a;
+        // b1 = -8 * K * a * a;
+        // b2 = -2 * K * Ts * a * wc + 4 * K * a * a;
+        // b3 = 0;
+
+        // a0 = Ts * Ts * a * wc * whp + 2 * Ts * a * wc + 2 * Ts * whp + 4;
+        // a1 = 2 * Ts * Ts * a * wc * whp - 8;
+        // a2 = Ts * Ts * a * wc * whp - 2 * Ts * a * wc - 2 * Ts * whp + 4;
+        // a3 = 0;
+        if (phase > 0)
         {
-            if (wlp / (2 * PI) > 1.0 / Ts) // exclude low pass
-            {
-                Serial.println("Controller Type -> Lead Lag + Integral");
-                K = gain * wi / a;
-                a0 = 2 * Ts * a * wc * wi + 4 * wi;
-                a1 = -8 * wi;
-                a2 = -2 * Ts * a * wc * wi + 4 * wi;
-                a3 = 0.0;
+            Serial.println("Gyroscope Controller -> Lead Lag + Low Pass");
+            K = gain / a;
+            b0 = K * Ts * Ts * a * wc * wlp + 2 * K * Ts * a * a * wlp;
+            b1 = 2 * K * Ts * Ts * a * wc * wlp;
+            b2 = K * Ts * Ts * a * wc * wlp - 2 * K * Ts * a * a * wlp;
+            b3 = 0.0;
 
-                b0 = K * Ts * Ts * a * wc * wi + 2 * K * Ts * a * a * wi + 2 * K * Ts * a * wc + 4 * K * a * a;
-                b1 = 2 * K * Ts * Ts * a * wc * wi - 8 * K * a * a;
-                b2 = K * Ts * Ts * a * wc * wi - 2 * K * Ts * a * a * wi - 2 * K * Ts * a * wc + 4 * K * a * a;
-                b3 = 0.0;
-            }
-            else // include low pass
-            {
-                Serial.println("Controller Type -> Lead Lag + Integral + Low Pass");
-                K = gain * wi / a;
-                a0 = (2 * Ts2 * a * wc * wi * wlp + 4 * Ts * a * wc * wi + 4 * Ts * wi * wlp + 8 * wi);
-                a1 = (2 * Ts2 * a * wc * wi * wlp - 4 * Ts * a * wc * wi - 4 * Ts * wi * wlp - 24 * wi);
-                a2 = (-2 * Ts2 * a * wc * wi * wlp - 4 * Ts * a * wc * wi - 4 * Ts * wi * wlp + 24 * wi);
-                a3 = (-2 * Ts2 * a * wc * wi * wlp + 4 * Ts * a * wc * wi + 4 * Ts * wi * wlp - 8 * wi);
-
-                b0 = (K * Ts3 * a * wc * wi * wlp + 2 * K * Ts2 * a * a * wi * wlp + 2 * K * Ts2 * a * wc * wlp + 4 * K * Ts * a * a * wlp);
-                b1 = (3 * K * Ts3 * a * wc * wi * wlp + 2 * K * Ts2 * a * a * wi * wlp + 2 * K * Ts2 * a * wc * wlp - 4 * K * Ts * a * a * wlp);
-                b2 = (3 * K * Ts3 * a * wc * wi * wlp - 2 * K * Ts2 * a * a * wi * wlp - 2 * K * Ts2 * a * wc * wlp - 4 * K * Ts * a * a * wlp);
-                b3 = (K * Ts3 * a * wc * wi * wlp - 2 * K * Ts2 * a * a * wi * wlp - 2 * K * Ts2 * a * wc * wlp + 4 * K * Ts * a * a * wlp);
-            }
+            a0 = Ts * Ts * a * wc * wlp + 2 * Ts * a * wc + 2 * Ts * wlp + 4;
+            a1 = 2 * Ts * Ts * a * wc * wlp - 8;
+            a2 = Ts * Ts * a * wc * wlp - 2 * Ts * a * wc - 2 * Ts * wlp + 4;
+            a3 = 0.0;
         }
-        else // exclude integral
+        else
         {
-            if (wlp / (2 * PI) > 1.0 / Ts) // exclude low pass
-            {
-                Serial.println("Controller Type -> Lead Lag");
-                K = gain / a;
-                a0 = Ts * a * wc + 2;
-                a1 = Ts * a * wc - 2;
-                a2 = 0.0;
-                a3 = 0.0;
+            Serial.println("Gyroscope Controller -> Lead Lag");
+            K = gain;
+            a0 = Ts * wlp + 2;
+            a1 = Ts * wlp - 2;
+            a2 = 0.0;
+            a3 = 0.0;
 
-                b0 = K * Ts * a * wc + 2 * K * a * a;
-                b1 = K * Ts * a * wc - 2 * K * a * a;
-                b2 = 0.0;
-                b3 = 0.0;
-            }
-            else // include low pass
-            {
-                Serial.println("Controller Type -> Lead Lag + Low Pass");
-                K = gain / a;
-                b0 = K * Ts * Ts * a * wc * wlp + 2 * K * Ts * a * a * wlp;
-                b1 = 2 * K * Ts * Ts * a * wc * wlp;
-                b2 = K * Ts * Ts * a * wc * wlp - 2 * K * Ts * a * a * wlp;
-                b3 = 0.0;
-
-                a0 = Ts * Ts * a * wc * wlp + 2 * Ts * a * wc + 2 * Ts * wlp + 4;
-                a1 = 2 * Ts * Ts * a * wc * wlp - 8;
-                a2 = Ts * Ts * a * wc * wlp - 2 * Ts * a * wc - 2 * Ts * wlp + 4;
-                a3 = 0.0;
-            }
+            b0 = K * Ts * wlp;
+            b1 = K * Ts * wlp;
+            b2 = 0.0;
+            b3 = 0.0;
         }
+
+        Disable();
+        _gains1[0] = a0 / a0;
+        _gains1[1] = a1 / a0;
+        _gains1[2] = a2 / a0;
+        _gains1[3] = a3 / a0;
+
+        _gains1[4] = b0 / a0;
+        _gains1[5] = b1 / a0;
+        _gains1[6] = b2 / a0;
+        _gains1[7] = b3 / a0;
     }
-    else // exclude lead-lag
+    else if (type == CONTROL_ACCEL)
     {
-        if (wi / (2 * PI) > integralTol) // include integral
+        // Serial.println("Accelerometer Controller -> Integral + Low Pass");
+        // K = gain * wi;
+        // b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
+        // b1 = 2 * K * Ts2 * wi * wlp;
+        // b2 = K * Ts2 * wi * wlp - 2 * K * Ts * wlp;
+        // b3 = 0;
+
+        // a0 = (2 * Ts * wi * wlp + 4 * wi);
+        // a1 = -8 * wi;
+        // a2 = -2 * Ts * wi * wlp + 4 * wi;
+        // a3 = 0;
+
+        if (phase > 0)
         {
-            if (wlp / (2 * PI) > 1.0 / Ts) // exclude low pass
-            {
-                Serial.println("Controller Type -> Integral");
-                K = gain * wi;
-                a0 = 2 * wi;
-                a1 = -2 * wi;
-                a2 = 0.0;
-                a3 = 0.0;
+            Serial.println("Accelerometer Controller -> Lead Lag + Low Pass");
+            K = gain / a;
+            b0 = K * Ts * Ts * a * wc * wlp + 2 * K * Ts * a * a * wlp;
+            b1 = 2 * K * Ts * Ts * a * wc * wlp;
+            b2 = K * Ts * Ts * a * wc * wlp - 2 * K * Ts * a * a * wlp;
+            b3 = 0.0;
 
-                b0 = K * Ts * wi + 2 * K;
-                b1 = K * Ts * wi - 2 * K;
-                b2 = 0.0;
-                b3 = 0.0;
-            }
-            else
-            {
-                Serial.println("Controller Type -> Integral + Low Pass");
-                K = gain * wi;
-                b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
-                b1 = 2 * K * Ts2 * wi * wlp;
-                b2 = K * Ts2 * wi * wlp - 2 * K * Ts * wlp;
-                b3 = 0;
-
-                a0 = (2 * Ts * wi * wlp + 4 * wi);
-                a1 = -8 * wi;
-                a2 = -2 * Ts * wi * wlp + 4 * wi;
-                a3 = 0;
-            }
+            a0 = Ts * Ts * a * wc * wlp + 2 * Ts * a * wc + 2 * Ts * wlp + 4;
+            a1 = 2 * Ts * Ts * a * wc * wlp - 8;
+            a2 = Ts * Ts * a * wc * wlp - 2 * Ts * a * wc - 2 * Ts * wlp + 4;
+            a3 = 0.0;
         }
-        else // exclude integral
+        else
         {
-            if (wlp / (2 * PI) > 1.0 / Ts) // exclude low pass
-            {
-                Serial.println("Controller Type -> Proportional");
-                K = gain;
-                a0 = 1.0;
-                a1 = 0.0;
-                a2 = 0.0;
-                a3 = 0.0;
+            Serial.println("Accelerometer Controller -> Lead Lag");
+            K = gain;
+            a0 = Ts * wlp + 2;
+            a1 = Ts * wlp - 2;
+            a2 = 0.0;
+            a3 = 0.0;
 
-                b0 = K;
-                b1 = 0.0;
-                b2 = 0.0;
-                b3 = 0.0;
-            }
-            else
-            {
-                Serial.println("Controller Type -> Low Pass");
-                K = gain;
-                a0 = Ts * wlp + 2;
-                a1 = Ts * wlp - 2;
-                a2 = 0.0;
-                a3 = 0.0;
-
-                b0 = K * Ts * wlp;
-                b1 = K * Ts * wlp;
-                b2 = 0.0;
-                b3 = 0.0;
-            }
+            b0 = K * Ts * wlp;
+            b1 = K * Ts * wlp;
+            b2 = 0.0;
+            b3 = 0.0;
         }
+
+        Disable();
+        _gains2[0] = a0 / a0;
+        _gains2[1] = a1 / a0;
+        _gains2[2] = a2 / a0;
+        _gains2[3] = a3 / a0;
+
+        _gains2[4] = b0 / a0;
+        _gains2[5] = b1 / a0;
+        _gains2[6] = b2 / a0;
+        _gains2[7] = b3 / a0;
     }
-
-    Disable();
-    _gains[0] = a0 / a0;
-    _gains[1] = a1 / a0;
-    _gains[2] = a2 / a0;
-    _gains[3] = a3 / a0;
-
-    _gains[4] = b0 / a0;
-    _gains[5] = b1 / a0;
-    _gains[6] = b2 / a0;
-    _gains[7] = b3 / a0;
-
-    if (print == 1)
-    {
-        Serial.print("Inputs = ");
-        Serial.print(wc, 8);
-        Serial.print(",");
-        Serial.print(wi, 8);
-        Serial.print(",");
-        Serial.print(wlp, 8);
-        Serial.print(",");
-        Serial.print(gain, 8);
-        Serial.print(",");
-        Serial.print(phase, 8);
-        Serial.println("");
-
-        Serial.print("Gains = ");
-        Serial.print(_gains[0], 8);
-        Serial.print(",");
-        Serial.print(_gains[1], 8);
-        Serial.print(",");
-        Serial.print(_gains[2], 8);
-        Serial.print(",");
-        Serial.print(_gains[3], 8);
-        Serial.print(",");
-        Serial.print(_gains[4], 8);
-        Serial.print(",");
-        Serial.print(_gains[5], 8);
-        Serial.print(",");
-        Serial.print(_gains[6], 8);
-        Serial.print(",");
-        Serial.print(_gains[7], 8);
-        Serial.println("");
-        Serial.print("Calc = ");
-        Serial.print(K, 8);
-        Serial.print(",");
-        Serial.print(a0, 8);
-        Serial.print(",");
-        Serial.print(a1, 8);
-        Serial.print(",");
-        Serial.print(a2, 8);
-        Serial.print(",");
-        Serial.print(a3, 8);
-        Serial.print(",");
-        Serial.print(b0, 8);
-        Serial.print(",");
-        Serial.print(b1, 8);
-        Serial.print(",");
-        Serial.print(b2, 8);
-        Serial.print(",");
-        Serial.print(b3, 8);
-        Serial.println("");
-    }
+    else
+        throw std::invalid_argument("Invalid control type");
 }
 
 float ControlAlgo::GetTarget()
@@ -299,94 +179,144 @@ float ControlAlgo::GetTarget()
     return _target;
 }
 
-void ControlAlgo::SetGain(float gain, int i, int relative)
+void ControlAlgo::SetGain(float gain, int i, int relative, int type)
 {
     if (relative == 1)
-        _gains[i] *= gain;
+    {
+        if (type == CONTROL_GYRO)
+            _gains1[i] *= gain;
+        else if (type == CONTROL_ACCEL)
+            _gains2[i] *= gain;
+        else
+            throw std::invalid_argument("Invalid control type");
+    }
     else
-        _gains[i] = gain;
+    {
+        if (type == CONTROL_GYRO)
+            _gains1[i] = gain;
+        else if (type == CONTROL_ACCEL)
+            _gains2[i] = gain;
+        else
+            throw std::invalid_argument("Invalid control type");
+    }
 }
 
-float ControlAlgo::GetGain(int i)
+float ControlAlgo::GetGain(int i, int type)
 {
-    return _gains[i];
+    if (type == CONTROL_GYRO)
+        return _gains1[i];
+    else if (type == CONTROL_ACCEL)
+        return _gains2[i];
+    else
+        throw std::invalid_argument("Invalid control type");
 }
 
 void ControlAlgo::Disable()
 {
-    _out = 0;
-    _error = 0;
+    _accel_out = 0;
+    _velocity_out = 0;
+    _error1 = 0;
+    _error2 = 0;
     _ramp_time = 0;
-    UpdateOutput(_out);
+    UpdateOutput(_velocity_out);
 
-    _inputs[0] = 0.0;
-    _inputs[1] = 0.0;
-    _inputs[2] = 0.0;
-    _inputs[3] = 0.0;
-
-    _outputs[0] = 0.0;
-    _outputs[1] = 0.0;
-    _outputs[2] = 0.0;
-    _outputs[3] = 0.0;
+    for (int i = 0; i < 4; i++)
+    {
+        _inputs1[i] = 0.0;
+        _inputs2[i] = 0.0;
+        _outputs1[i] = 0.0;
+        _outputs2[i] = 0.0;
+    }
 }
 
-int ControlAlgo::ControlUpdate(float angle)
+int ControlAlgo::ControlUpdate(float gyro_angle, float acc_angle)
 {
     // target control loop
     // - sets target to achieve low motor speed
-    _target -= 0.000001 * _out;
+    // _target -= 0.000001 * _out;
     // _target += 0.00001 * _out;
 
     // target dither
-    float dither = 0.25 * sin(2 * PI * millis() / 5000);
+    float dither = 0.0; // 0.25 * sin(2 * PI * millis() / 5000);
 
-    // angle control loop
-    _error = (angle - _target - dither);
-    _inputs[3] = _inputs[2];
-    _inputs[2] = _inputs[1];
-    _inputs[1] = _inputs[0];
-    _inputs[0] = _error;
+    // control error
+    _error1 = (gyro_angle);
+    _error2 = (acc_angle - _target - dither);
 
-    _outputs[3] = _outputs[2];
-    _outputs[2] = _outputs[1];
-    _outputs[1] = _outputs[0];
-    _outputs[0] = (-_gains[1] * _outputs[1] - _gains[2] * _outputs[2] - _gains[3] * _outputs[3] + _gains[4] * _inputs[0] + _gains[5] * _inputs[1] + _gains[6] * _inputs[2] + _gains[7] * _inputs[3]) / _gains[0];
+    // GYROSCOPE CONTROL LOOP
+    _inputs1[3] = _inputs1[2];
+    _inputs1[2] = _inputs1[1];
+    _inputs1[1] = _inputs1[0];
+    _inputs1[0] = _error1;
+
+    _outputs1[3] = _outputs1[2];
+    _outputs1[2] = _outputs1[1];
+    _outputs1[1] = _outputs1[0];
+    _outputs1[0] = (-_gains1[1] * _outputs1[1] - _gains1[2] * _outputs1[2] - _gains1[3] * _outputs1[3] + _gains1[4] * _inputs1[0] + _gains1[5] * _inputs1[1] + _gains1[6] * _inputs1[2] + _gains1[7] * _inputs1[3]) / _gains1[0];
 
     // - wind-up protection
     float scale = 1;
-    if (_outputs[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs[0];
-    else if (_outputs[0] > _MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs[0];
+    if (_outputs1[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
+        scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs1[0];
+    else if (_outputs1[0] > _MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT))
+        scale = (_MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs1[0];
 
     if (scale != 1)
     {
-        // Serial.println("windup protection");
-        _inputs[0] *= scale;
-        _inputs[1] *= scale;
-        _inputs[2] *= scale;
-        _inputs[3] *= scale;
+        _inputs1[0] *= scale;
+        _inputs1[1] *= scale;
+        _inputs1[2] *= scale;
+        _inputs1[3] *= scale;
 
-        _outputs[0] *= scale;
-        _outputs[1] *= scale;
-        _outputs[2] *= scale;
-        _outputs[3] *= scale;
+        _outputs1[0] *= scale;
+        _outputs1[1] *= scale;
+        _outputs1[2] *= scale;
+        _outputs1[3] *= scale;
     }
-    _out_calc = _outputs[0];
 
-    // output update
-    // _out = constrain(_out + _outputs[0], _MIN_OUT, _MAX_OUT); // cumulative output, converting accel/force to speed
+    // ACCELEROMETER CONTROL LOOP
+    _inputs2[3] = _inputs2[2];
+    _inputs2[2] = _inputs2[1];
+    _inputs2[1] = _inputs2[0];
+    _inputs2[0] = _error2;
+
+    _outputs2[3] = _outputs2[2];
+    _outputs2[2] = _outputs2[1];
+    _outputs2[1] = _outputs2[0];
+    _outputs2[0] = (-_gains2[1] * _outputs2[1] - _gains2[2] * _outputs2[2] - _gains2[3] * _outputs2[3] + _gains2[4] * _inputs2[0] + _gains2[5] * _inputs2[1] + _gains2[6] * _inputs2[2] + _gains2[7] * _inputs2[3]) / _gains2[0];
+
+    // - wind-up protection
+    scale = 1;
+    if (_outputs2[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
+        scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs2[0];
+    else if (_outputs2[0] > _MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT))
+        scale = (_MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs2[0];
+
+    if (scale != 1)
+    {
+        _inputs2[0] *= scale;
+        _inputs2[1] *= scale;
+        _inputs2[2] *= scale;
+        _inputs2[3] *= scale;
+
+        _outputs2[0] *= scale;
+        _outputs2[1] *= scale;
+        _outputs2[2] *= scale;
+        _outputs2[3] *= scale;
+    }
+
+    // GYROSCOPE+ACCELEROMETER CONTROL OUTPUT
+    // acceleration output
+    _accel_out = _outputs1[0] + _outputs2[0];
+
+    // velocity output with enable ramp
     if (_ramp_time < EN_RAMP)
         _ramp_time++;
-    // _out = (_ramp_time / EN_RAMP) * constrain(_out + _outputs[0], -100, 100); // cumulative output, converting accel/force to speed
-    _out = (_ramp_time / EN_RAMP) * constrain(_out + _outputs[0], -150, 150); // cumulative output, converting accel/force to speed
+    _velocity_out = (_ramp_time / EN_RAMP) * constrain(_velocity_out + _accel_out, -100, 100); // cumulative output, converting accel/force to speed
 
-    // control leak
-    if (abs(_error) < 1.0)  // TODO: configurable threshold and leak rate
-        _out = 0.95 * _out; // leaky always tries to zero speed
+    UpdateOutput(_velocity_out);
 
-    UpdateOutput(_out);
-
+    // TODO: add max velocity protection
     return 0;
 }
 

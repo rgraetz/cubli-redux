@@ -5,8 +5,8 @@
 #include "common.h"
 #include "DiscreteFilter.h"
 
-#define ACC_GYRO_FILTER 0.98
-#define ACC_FILTER 2.0
+#define ACC_GYRO_FILTER 0.9
+#define ACC_FILTER 5.0
 
 class Euler
 {
@@ -45,6 +45,7 @@ public:
     RobotCS(int type);
     void MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
     float roll, pitch, yaw;
+    float gyroAngleX, gyroAngleY, gyroAngleZ;
     float accAngleX, accAngleY, accAngleZ;
     float GetAccX();
     float GetAccY();
