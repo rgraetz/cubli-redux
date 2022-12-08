@@ -11,18 +11,18 @@ float u2[3] = {0.0, -0.70710678, 0.70710678};
 float u3[3] = {0.57735027, 0.57735027, 0.57735027};
 AngleTransformation MotorAngles(u1, u2, u3);
 
-// GYROSCOPE CONTROL GAINS
+// VELOCITY CONTROL GAINS
 float fc1 = 10.0;
 float fi1 = 0.0;
-float flp1 = 40.0;
+float flp1 = 200.0;
 float gain1 = 1000.0;
 float phase1 = 3.0;
 
-// ACCELEROMETER CONTROL GAINS
+// POSITION CONTROL GAINS
 float fc2 = 1.0;
-float fi2 = 0.01;
+float fi2 = 0.001;
 float flp2 = 10.0;
-float gain2 = 2.0;
+float gain2 = 0.01;
 float phase2 = 0.0;
 
 ControlAlgo M1_Control(M1_DIR_GPIO, 1, M1_PWM_GPIO, 1); // Z-direction motor "black"
@@ -167,13 +167,13 @@ void loop()
         if (current_State == INIT)
         {
             // set control gains
-            M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
-            M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
-            M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+            M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
+            M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
+            M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
 
-            M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
-            M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
-            M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+            M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
+            M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
+            M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
             // stop motors
             Stop();
         }
@@ -191,7 +191,7 @@ void loop()
             // brake off
             digitalWrite(EMO_GPIO, HIGH);
             // control_Error = M1_Control.ControlUpdate(RobotAngles.pitch);
-            control_Error = M1_Control.ControlUpdate(RobotAngles.gyroAngleY, RobotAngles.accAngleY);
+            control_Error = M1_Control.ControlUpdate(RobotAngles.pitch, RobotAngles.gyroAngleY);
             M2_Control.Disable();
             M3_Control.Disable();
             // M1_Control.SetOutput(frf_amp * sin(frf_freq * millis() / 1000 * 2 * PI));
@@ -281,20 +281,17 @@ void loop()
         {
             if ((current_State == EDGE1)) // || (current_State == IDLE))
             {
-                Serial.print("ErrorGyro:");
-                Serial.print(M1_Control._error1, 6);
+                Serial.print("ErrorPos:");
+                Serial.print(M1_Control._pos_error, 6);
                 Serial.print(",");
-                Serial.print("ErrorAcc:");
-                Serial.print(M1_Control._error2, 6);
+                Serial.print("ErrorVel:");
+                Serial.print(M1_Control._vel_error, 6);
                 Serial.print(",");
                 Serial.print("Angle:");
                 Serial.print(RobotAngles.pitch, 6);
                 Serial.print(",");
                 Serial.print("AngleGyro:");
                 Serial.print(RobotAngles.gyroAngleY, 6);
-                Serial.print(",");
-                Serial.print("AngleAcc:");
-                Serial.print(RobotAngles.accAngleY, 6);
                 Serial.print(",");
                 Serial.print("MotorAcc:");
                 Serial.print(M1_Control._accel_out, 6);
@@ -305,8 +302,11 @@ void loop()
                 // Serial.print("PWM:");
                 // Serial.print(M1_Control._pwm, 6);
                 Serial.print(", ");
-                Serial.print("Target:");
-                Serial.print(M1_Control.GetTarget(), 6);
+                Serial.print("TargetVel:");
+                Serial.print(M1_Control.GetTarget(CONTROL_VEL), 6);
+                Serial.print(", ");
+                Serial.print("TargetPos:");
+                Serial.print(M1_Control.GetTarget(CONTROL_POS), 6);
                 Serial.print(", ");
                 Serial.print("MeasLate:");
                 Serial.print(measurement_late, 6);
@@ -532,13 +532,13 @@ void Tuning()
             Serial.println(phase2);
         }
 
-        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 1);
-        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
-        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
+        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
+        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
 
-        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 1);
-        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
-        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
+        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
+        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
 
         break;
     case '-':
@@ -607,13 +607,13 @@ void Tuning()
             Serial.println(phase2);
         }
 
-        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 1);
-        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
-        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_GYRO, 0);
+        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
+        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
+        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
 
-        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 1);
-        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
-        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_ACCEL, 0);
+        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
+        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
+        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
 
         break;
     case 's':
