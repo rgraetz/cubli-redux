@@ -7,6 +7,7 @@
 
 #define ACC_GYRO_FILTER 0.9
 #define ACC_FILTER 5.0
+#define GYRO_FILTER 0.5
 
 class Euler
 {
@@ -45,18 +46,20 @@ public:
     RobotCS(int type);
     void MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ);
     float roll, pitch, yaw;
-    float gyroAngleX, gyroAngleY, gyroAngleZ;
     float accAngleX, accAngleY, accAngleZ;
     float GetAccX();
     float GetAccY();
     float GetAccZ();
+    float GetGyroX();
+    float GetGyroY();
+    float GetGyroZ();
 
 private:
     int _type;
     int _initialized;
     int _val;
 
-    DiscreteFilter accXf, accYf, accZf;
+    DiscreteFilter accXf, accYf, accZf, gyroXf, gyroYf, gyroZf;
 };
 
 #endif

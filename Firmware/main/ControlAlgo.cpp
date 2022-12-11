@@ -14,6 +14,8 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
 
     _MAX_OUT = 255;
     _MIN_OUT = -_MAX_OUT;
+    _MAX_SPEED = 100;
+    _MIN_SPEED = -_MAX_SPEED;
 
     _WINDUP = 0.05;
 
@@ -21,18 +23,19 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
     ledcSetup(_pwmChannel, PWM_BASE_FREQ, TIMER_BIT);
     ledcAttachPin(PWM_GPIO, _pwmChannel);
 
+    // control loop settings
+    _bal_loop.SetWindup(-0.5, 0.5, _WINDUP);
+    _pos_loop.SetWindup(-0.1, 0.1, _WINDUP);
+    _vel_loop.SetWindup(_MIN_OUT, _MAX_OUT, _WINDUP); // TODO: set to max speed instead?
+
     // default values
     _pos_target = 0;
     _accel_out = 0;
     _velocity_out = 0;
     _pos_error = 0;
     _vel_error = 0;
+    _bal_error = 0;
     _ramp_time = 0;
-    for (int i = 0; i < 8; i++)
-    {
-        _gains_pos[i] = 0;
-        _gains_vel[i] = 0;
-    }
 }
 
 void ControlAlgo::SetTarget(float target)
@@ -44,9 +47,13 @@ void ControlAlgo::SetGains(float gains[8], int type)
 {
     for (int i = 0; i < 8; i++)
         if (type == CONTROL_VEL)
-            _gains_vel[i] = gains[i];
+            _vel_loop.SetGain(i, gains[i]);
         else if (type == CONTROL_POS)
-            _gains_pos[i] = gains[i];
+            _pos_loop.SetGain(i, gains[i]);
+        else if (type == CONTROL_BAL)
+            _bal_loop.SetGain(i, gains[i]);
+        else
+            throw std::invalid_argument("Invalid control type");
 }
 
 void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase, int type, int print)
@@ -64,18 +71,6 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
 
     if (type == CONTROL_VEL)
     {
-        // double whp = wlp;
-        // Serial.println("Gyroscope Controller -> Lead Lag + High pass");
-        // K = gain / a;
-        // b0 = 2 * K * Ts * a * wc + 4 * K * a * a;
-        // b1 = -8 * K * a * a;
-        // b2 = -2 * K * Ts * a * wc + 4 * K * a * a;
-        // b3 = 0;
-
-        // a0 = Ts * Ts * a * wc * whp + 2 * Ts * a * wc + 2 * Ts * whp + 4;
-        // a1 = 2 * Ts * Ts * a * wc * whp - 8;
-        // a2 = Ts * Ts * a * wc * whp - 2 * Ts * a * wc - 2 * Ts * whp + 4;
-        // a3 = 0;
         if (phase > 0)
         {
             Serial.println("Velocity Controller -> Lead Lag + Low Pass");
@@ -92,7 +87,7 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         }
         else
         {
-            Serial.println("Velocity Controller -> Lead Lag");
+            Serial.println("Velocity Controller -> Low Pass");
             K = gain;
             a0 = Ts * wlp + 2;
             a1 = Ts * wlp - 2;
@@ -106,59 +101,17 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         }
 
         Disable();
-        _gains_vel[0] = a0 / a0;
-        _gains_vel[1] = a1 / a0;
-        _gains_vel[2] = a2 / a0;
-        _gains_vel[3] = a3 / a0;
-
-        _gains_vel[4] = b0 / a0;
-        _gains_vel[5] = b1 / a0;
-        _gains_vel[6] = b2 / a0;
-        _gains_vel[7] = b3 / a0;
+        _vel_loop.SetGain(0, a0 / a0);
+        _vel_loop.SetGain(1, a1 / a0);
+        _vel_loop.SetGain(2, a2 / a0);
+        _vel_loop.SetGain(3, a3 / a0);
+        _vel_loop.SetGain(4, b0 / a0);
+        _vel_loop.SetGain(5, b1 / a0);
+        _vel_loop.SetGain(6, b2 / a0);
+        _vel_loop.SetGain(7, b3 / a0);
     }
     else if (type == CONTROL_POS)
     {
-        // Serial.println("Accelerometer Controller -> Integral + Low Pass");
-        // K = gain * wi;
-        // b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
-        // b1 = 2 * K * Ts2 * wi * wlp;
-        // b2 = K * Ts2 * wi * wlp - 2 * K * Ts * wlp;
-        // b3 = 0;
-
-        // a0 = (2 * Ts * wi * wlp + 4 * wi);
-        // a1 = -8 * wi;
-        // a2 = -2 * Ts * wi * wlp + 4 * wi;
-        // a3 = 0;
-
-        // if (phase > 0)
-        // {
-        //     Serial.println("Position Controller -> Lead Lag + Low Pass");
-        //     K = gain / a;
-        //     b0 = K * Ts * Ts * a * wc * wlp + 2 * K * Ts * a * a * wlp;
-        //     b1 = 2 * K * Ts * Ts * a * wc * wlp;
-        //     b2 = K * Ts * Ts * a * wc * wlp - 2 * K * Ts * a * a * wlp;
-        //     b3 = 0.0;
-
-        //     a0 = Ts * Ts * a * wc * wlp + 2 * Ts * a * wc + 2 * Ts * wlp + 4;
-        //     a1 = 2 * Ts * Ts * a * wc * wlp - 8;
-        //     a2 = Ts * Ts * a * wc * wlp - 2 * Ts * a * wc - 2 * Ts * wlp + 4;
-        //     a3 = 0.0;
-        // }
-        // else
-        // {
-        //     Serial.println("Position Controller -> Lead Lag");
-        //     K = gain;
-        //     a0 = Ts * wlp + 2;
-        //     a1 = Ts * wlp - 2;
-        //     a2 = 0.0;
-        //     a3 = 0.0;
-
-        //     b0 = K * Ts * wlp;
-        //     b1 = K * Ts * wlp;
-        //     b2 = 0.0;
-        //     b3 = 0.0;
-        // }
-
         if (phase > 0)
         {
             Serial.println("Position Controller -> Integral + Lead Lag + Low Pass");
@@ -189,18 +142,89 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         }
 
         Disable();
-        _gains_pos[0] = a0 / a0;
-        _gains_pos[1] = a1 / a0;
-        _gains_pos[2] = a2 / a0;
-        _gains_pos[3] = a3 / a0;
+        _pos_loop.SetGain(0, a0 / a0);
+        _pos_loop.SetGain(1, a1 / a0);
+        _pos_loop.SetGain(2, a2 / a0);
+        _pos_loop.SetGain(3, a3 / a0);
+        _pos_loop.SetGain(4, b0 / a0);
+        _pos_loop.SetGain(5, b1 / a0);
+        _pos_loop.SetGain(6, b2 / a0);
+        _pos_loop.SetGain(7, b3 / a0);
+    }
+    else if (type == CONTROL_BAL)
+    {
+        Serial.println("Balance Controller -> Integral + Low Pass");
+        K = gain * wi;
+        b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
+        b1 = 2 * K * Ts2 * wi * wlp;
+        b2 = K * Ts2 * wi * wlp - 2 * K * Ts * wlp;
+        b3 = 0;
 
-        _gains_pos[4] = b0 / a0;
-        _gains_pos[5] = b1 / a0;
-        _gains_pos[6] = b2 / a0;
-        _gains_pos[7] = b3 / a0;
+        a0 = (2 * Ts * wi * wlp + 4 * wi);
+        a1 = -8 * wi;
+        a2 = -2 * Ts * wi * wlp + 4 * wi;
+        a3 = 0;
+
+        Disable();
+        _bal_loop.SetGain(0, a0 / a0);
+        _bal_loop.SetGain(1, a1 / a0);
+        _bal_loop.SetGain(2, a2 / a0);
+        _bal_loop.SetGain(3, a3 / a0);
+        _bal_loop.SetGain(4, b0 / a0);
+        _bal_loop.SetGain(5, b1 / a0);
+        _bal_loop.SetGain(6, b2 / a0);
+        _bal_loop.SetGain(7, b3 / a0);
     }
     else
         throw std::invalid_argument("Invalid control type");
+
+    if (print == 1)
+    {
+        Serial.print("Inputs = ");
+        Serial.print(wc, 8);
+        Serial.print(",");
+        Serial.print(wi, 8);
+        Serial.print(",");
+        Serial.print(wlp, 8);
+        Serial.print(",");
+        Serial.print(gain, 8);
+        Serial.print(",");
+        Serial.print(phase, 8);
+        Serial.println("");
+
+        Serial.print("Gains = ");
+        for (int i = 0; i < 8; i++)
+        {
+            if (type == CONTROL_POS)
+                Serial.print(_pos_loop.GetGain(i), 8);
+            else if (type == CONTROL_VEL)
+                Serial.print(_vel_loop.GetGain(i), 8);
+            else if (type == CONTROL_BAL)
+                Serial.print(_bal_loop.GetGain(i), 8);
+            Serial.print(",");
+        }
+
+        Serial.println("");
+        Serial.print("Calc = ");
+        Serial.print(K, 8);
+        Serial.print(",");
+        Serial.print(a0, 8);
+        Serial.print(",");
+        Serial.print(a1, 8);
+        Serial.print(",");
+        Serial.print(a2, 8);
+        Serial.print(",");
+        Serial.print(a3, 8);
+        Serial.print(",");
+        Serial.print(b0, 8);
+        Serial.print(",");
+        Serial.print(b1, 8);
+        Serial.print(",");
+        Serial.print(b2, 8);
+        Serial.print(",");
+        Serial.print(b3, 8);
+        Serial.println("");
+    }
 }
 
 float ControlAlgo::GetTarget(int type)
@@ -209,38 +233,20 @@ float ControlAlgo::GetTarget(int type)
         return _pos_target;
     else if (type == CONTROL_VEL)
         return _vel_target;
+    else if (type == CONTROL_BAL)
+        return _bal_target;
     else
         throw std::invalid_argument("Invalid control type");
-}
-
-void ControlAlgo::SetGain(float gain, int i, int relative, int type)
-{
-    if (relative == 1)
-    {
-        if (type == CONTROL_VEL)
-            _gains_vel[i] *= gain;
-        else if (type == CONTROL_POS)
-            _gains_pos[i] *= gain;
-        else
-            throw std::invalid_argument("Invalid control type");
-    }
-    else
-    {
-        if (type == CONTROL_VEL)
-            _gains_vel[i] = gain;
-        else if (type == CONTROL_POS)
-            _gains_pos[i] = gain;
-        else
-            throw std::invalid_argument("Invalid control type");
-    }
 }
 
 float ControlAlgo::GetGain(int i, int type)
 {
     if (type == CONTROL_VEL)
-        return _gains_vel[i];
+        return _vel_loop.GetGain(i);
     else if (type == CONTROL_POS)
-        return _gains_pos[i];
+        return _pos_loop.GetGain(i);
+    else if (type == CONTROL_BAL)
+        return _bal_loop.GetGain(i);
     else
         throw std::invalid_argument("Invalid control type");
 }
@@ -250,108 +256,64 @@ void ControlAlgo::Disable()
     _accel_out = 0;
     _velocity_out = 0;
     _vel_error = 0;
+    _bal_error = 0;
     _pos_error = 0;
     _ramp_time = 0;
-    UpdateOutput(_velocity_out);
 
-    for (int i = 0; i < 4; i++)
-    {
-        _inputs_pos[i] = 0.0;
-        _inputs_vel[i] = 0.0;
-        _outputs_pos[i] = 0.0;
-        _outputs_vel[i] = 0.0;
-    }
+    UpdateOutput(0);
+
+    _bal_loop.Reset();
+    _pos_loop.Reset();
+    _vel_loop.Reset();
 }
 
-int ControlAlgo::ControlUpdate(float position, float velocity)
+int ControlAlgo::ControlUpdate(float position, float velocity, int set_out)
+{
+    return ControlUpdate(position, velocity, set_out, 1, 1);
+}
+
+int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop)
 {
     // BALANCING TARGET CONTROL LOOP
     // - sets position target to achieve low motor speed and balance
-    _pos_target -= 0.000005 * _velocity_out;
+    if (en_bal_loop == 1)
+    {
+        _bal_error = (_invertDir == 1) ? _velocity_out : -_velocity_out;
+        _bal_loop.Update(_bal_error);
+        _bal_target = _bal_loop.GetLatest();
+    }
+    else
+        _bal_target = 0.0;
 
     // target dither
-    float dither = 0.0; // 0.25 * sin(2 * PI * millis() / 5000);
+    float dither = 0.25 * sin(2 * PI * millis() / 5000);
 
     // OUTER POSITION CONTROL LOOP
     // - sets velocity to achieve position
-    _pos_error = (position - _pos_target - dither);
-
-    _inputs_pos[3] = _inputs_pos[2];
-    _inputs_pos[2] = _inputs_pos[1];
-    _inputs_pos[1] = _inputs_pos[0];
-    _inputs_pos[0] = _pos_error;
-
-    _outputs_pos[3] = _outputs_pos[2];
-    _outputs_pos[2] = _outputs_pos[1];
-    _outputs_pos[1] = _outputs_pos[0];
-    _outputs_pos[0] = (-_gains_pos[1] * _outputs_pos[1] - _gains_pos[2] * _outputs_pos[2] - _gains_pos[3] * _outputs_pos[3] + _gains_pos[4] * _inputs_pos[0] + _gains_pos[5] * _inputs_pos[1] + _gains_pos[6] * _inputs_pos[2] + _gains_pos[7] * _inputs_pos[3]) / _gains_pos[0];
-
-    // TODO: convert windup to position
-    // - wind-up protection
-    float scale = 1;
-    if (_outputs_pos[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs_pos[0];
-    else if (_outputs_pos[0] > _MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs_pos[0];
-
-    if (scale != 1)
+    if (en_pos_loop == 1)
     {
-        _inputs_pos[0] *= scale;
-        _inputs_pos[1] *= scale;
-        _inputs_pos[2] *= scale;
-        _inputs_pos[3] *= scale;
+        _pos_error = (position - (_pos_target + _bal_target) - dither);
+        _pos_loop.Update(_pos_error);
 
-        _outputs_pos[0] *= scale;
-        _outputs_pos[1] *= scale;
-        _outputs_pos[2] *= scale;
-        _outputs_pos[3] *= scale;
+        _vel_target = (_invertDir == 1) ? _pos_loop.GetLatest() : -_pos_loop.GetLatest();
     }
-
-    _vel_target = -_outputs_pos[0];
+    else
+        _vel_target = 0.0;
 
     // INNER VELOCITY CONTROL LOOP
-    _vel_error = (velocity - _vel_target - dither);
+    _vel_error = (velocity - _vel_target);
+    _vel_loop.Update(_vel_error);
 
-    _inputs_vel[3] = _inputs_vel[2];
-    _inputs_vel[2] = _inputs_vel[1];
-    _inputs_vel[1] = _inputs_vel[0];
-    _inputs_vel[0] = _vel_error;
-
-    _outputs_vel[3] = _outputs_vel[2];
-    _outputs_vel[2] = _outputs_vel[1];
-    _outputs_vel[1] = _outputs_vel[0];
-    _outputs_vel[0] = (-_gains_vel[1] * _outputs_vel[1] - _gains_vel[2] * _outputs_vel[2] - _gains_vel[3] * _outputs_vel[3] + _gains_vel[4] * _inputs_vel[0] + _gains_vel[5] * _inputs_vel[1] + _gains_vel[6] * _inputs_vel[2] + _gains_vel[7] * _inputs_vel[3]) / _gains_vel[0];
-
-    // - wind-up protection
-    scale = 1;
-    if (_outputs_vel[0] < _MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MIN_OUT - _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs_vel[0];
-    else if (_outputs_vel[0] > _MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT))
-        scale = (_MAX_OUT + _WINDUP * (_MAX_OUT - _MIN_OUT)) / _outputs_vel[0];
-
-    if (scale != 1)
-    {
-        _inputs_vel[0] *= scale;
-        _inputs_vel[1] *= scale;
-        _inputs_vel[2] *= scale;
-        _inputs_vel[3] *= scale;
-
-        _outputs_vel[0] *= scale;
-        _outputs_vel[1] *= scale;
-        _outputs_vel[2] *= scale;
-        _outputs_vel[3] *= scale;
-    }
-
-    // GYROSCOPE+ACCELEROMETER CONTROL OUTPUT
     // acceleration output
-    _accel_out = _outputs_vel[0];
+    _accel_out = _vel_loop.GetLatest();
 
     // velocity output with enable ramp
     if (_ramp_time < EN_RAMP)
         _ramp_time++;
-    _velocity_out = (_ramp_time / EN_RAMP) * constrain(_velocity_out + _accel_out, -200, 200); // cumulative output, converting accel/force to speed
+    _velocity_out = (_ramp_time / EN_RAMP) * (_velocity_out + _accel_out); // cumulative output, converting accel/force to speed
 
-    UpdateOutput(_velocity_out);
+    if (set_out == 1)
+        UpdateOutput(_velocity_out);
 
     // TODO: add max velocity protection
     return 0;
@@ -359,7 +321,7 @@ int ControlAlgo::ControlUpdate(float position, float velocity)
 
 void ControlAlgo::UpdateOutput(float output)
 {
-    // output = constrain(output, _MIN_OUT, _MAX_OUT);
+    output = constrain(output, _MIN_SPEED, _MAX_SPEED);
     // set direction GPIO
     if ((output > 0) ^ (_invertDir == 1))
         digitalWrite(_DIR_GPIO, HIGH);

@@ -101,6 +101,13 @@ RobotCS::RobotCS(int type)
     accXf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
     accYf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
     accZf.SetButterFilter(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, ACC_FILTER);
+
+    // gyroXf.SetHighPass(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, GYRO_FILTER);
+    // gyroYf.SetHighPass(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, GYRO_FILTER);
+    // gyroZf.SetHighPass(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, GYRO_FILTER);
+    gyroXf.SetUnity();
+    gyroYf.SetUnity();
+    gyroZf.SetHighPass(2, (float)MEASUREMENT_PERIOD_USEC / 1000000.0, GYRO_FILTER);
 }
 
 void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float gyroY, float gyroZ)
@@ -109,6 +116,11 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
     accXf.Update(accX);
     accYf.Update(accY);
     accZf.Update(accZ);
+
+    // gyro filter
+    gyroXf.Update(gyroZ);
+    gyroYf.Update(gyroY);
+    gyroZf.Update(gyroX);
 
     // absolute accelerometer angle
     float AcMag = sqrt(pow(accXf.GetLatest(), 2) + pow(accYf.GetLatest(), 2) + pow(accZf.GetLatest(), 2));
@@ -125,10 +137,6 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
     accAngleX = (atan2(accY, -accX) * 180.0 / PI);
     accAngleY = -(atan2(accZ, -accX) * 180.0 / PI);
 
-    gyroAngleX = gyroZ;
-    gyroAngleY = gyroY;
-    gyroAngleZ = gyroX;
-
     roll += gyroZ; // gyroZ used for this MPU to robot orientation
     pitch += gyroY;
     yaw += gyroX; // gyroX used for this MPU to robot orientation
@@ -141,3 +149,6 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
 float RobotCS::GetAccX() { return this->accXf.GetLatest(); };
 float RobotCS::GetAccY() { return this->accYf.GetLatest(); };
 float RobotCS::GetAccZ() { return this->accZf.GetLatest(); };
+float RobotCS::GetGyroX() { return this->gyroXf.GetLatest(); };
+float RobotCS::GetGyroY() { return this->gyroYf.GetLatest(); };
+float RobotCS::GetGyroZ() { return this->gyroZf.GetLatest(); };

@@ -22,10 +22,10 @@
 #define EDGE_TOLERANCE 2.0
 #define EDGE1_R 33.0   // 28.0   // M1 edge roll
 #define EDGE1_P -19.75 //-15.55 // M1 edge pitch
-#define EDGE2_R 1.0    // M2 edge roll
-#define EDGE2_P 31.5   // M2 edge pitch
-#define EDGE3_R -26.0  // M3 edge roll
-#define EDGE3_P -16.5  // M3 edge pitch
+#define EDGE2_R 2.75   // M2 edge roll
+#define EDGE2_P 38.0   // M2 edge pitch
+#define EDGE3_R -31.8  // M3 edge roll
+#define EDGE3_P -18.0  // M3 edge pitch
 #define CORNER_R 0.0   // corner roll
 #define CORNER_P 0.0   // corner pitch
 
