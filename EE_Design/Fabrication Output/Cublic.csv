@@ -1,0 +1,17 @@
+Id;Designator;Package;Quantity;Designation;Supplier and ref;Part Number
+1;Q1;TO-243AA;1;2SD1620-TD-E;digikey;2SD1620-TD-EOSCT-ND
+2;SW1;PinHeader_1x02_P2.54mm_Vertical;1;SW_Push;;
+3;R9,R19,R15;R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;3;1k;digikey;RNCP0603FTD1K00CT-ND
+4;D3,D6,D5,D2,D1,D4;D_0603_1608Metric_Pad1.05x0.95mm_HandSolder;6;D_Schottky;digikey;283-STS521033B950CT-ND
+5;H1,H3,H2,H4;MountingHole_3.2mm_M3;4;MountingHole;;
+6;U3,U1,U2;PinHeader_1x08_P2.54mm_StrainRelief;3;Nidec_24H;;
+7;C2;C_0603_1608Metric_Pad1.08x0.95mm_HandSolder;1;0.1uF;digikey;1276-1006-1-ND
+8;R16,R14,R7,R1,R5,R2,R6,R12,R13,R3;R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;10;DNP;;
+9;C1,C3;C_0603_1608Metric_Pad1.08x0.95mm_HandSolder;2;0.33uF;digikey;445-12544-1-ND
+10;U5;AITRIP_ESP32;2;AITRIP_ESP32;digikey;S7048-ND
+11;U6,U7;Pinheader_1x05_P2.54mm_StrainRelief;2;MPU6050;;
+12;U4;TO-220-3_Horizontal_TabDown;1;LM7805_TO220;digikey;296-47192-ND
+13;BZ1;Buzzer_12x9.5RM7.6;1;WST-1210T;digikey;433-WST-1210T-ND
+14;R4;R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;1;10k;digikey;RNCP0603FTD10K0CT-ND
+15;R8;R_0603_1608Metric_Pad0.98x0.95mm_HandSolder;1;30k;digikey;RNCP0603FTD30K1CT-ND
+16;J1;XT30PW_M;1;XT30;amazon;
