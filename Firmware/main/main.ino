@@ -16,48 +16,13 @@ float m2_pos, m2_vel;
 float m3_pos, m3_vel;
 
 // EDGE
-// // VELOCITY CONTROL GAINS
-// float fc1 = 10.0;
-// float fi1 = 0.0;
-// float flp1 = 200.0;
-// float gain1 = 1000.0;
-// float phase1 = 3.0;
-
-// // POSITION CONTROL GAINS
-// float fc2 = 1.0;
-// float fi2 = 0.001;
-// float flp2 = 10.0;
-// float gain2 = 0.01;
-// float phase2 = 0.0;
-
-// // BALANCE CONTROL GAINS
-// float fc3 = 1.0;
-// float fi3 = 0.025;
-// float flp3 = 1.0;
-// float gain3 = 0.001;
-// float phase3 = 0.0;
-
-// CORNER
-// VELOCITY CONTROL GAINS
-float fc1 = 10.0;
-float fi1 = 0.0;
-float flp1 = 200.0;
-float gain1 = 300.0;
-float phase1 = 3.0;
-
-// POSITION CONTROL GAINS
-float fc2 = 1.0;
-float fi2 = 0.001;
-float flp2 = 10.0;
-float gain2 = 0.01;
-float phase2 = 0.0;
-
-// BALANCE CONTROL GAINS
-float fc3 = 1.0;
-float fi3 = 0.001;
-float flp3 = 1.0;
-float gain3 = 0.001;
-float phase3 = 0.0;
+// zero-crossing [Hz], integrator cutoff [Hz], low-pass cutoff [Hz], gain, lead-lag phase bump
+float control_gains[6][5] = {{10.0, 0.0, 200.0, 1000.0, 3.0}, // edge velocity control gains
+                             {1.0, 0.001, 10.0, 0.01, 0.0},   // edge position control gains
+                             {1.0, 0.075, 1.0, 0.002, 0.0},   // edge balance control gains
+                             {20.0, 0.0, 200.0, 1000.0, 3.0}, // corner velocity control gains
+                             {1.0, 0.005, 1.0, 0.1, 0.0},     // corner position control gains
+                             {1.0, 0.15, 1.0, 0.001, 0.0}};   // corner balance control gains
 
 ControlAlgo M1_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 1); // Z-direction motor "black"
 ControlAlgo M2_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 2); // Y-direction motor "silver"
@@ -72,7 +37,7 @@ int next_State = 0;
 int control_Error = 0;
 int late = 0;
 int mode = -1;
-int cont = -1;
+int controlIdx = -1;
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -80,6 +45,7 @@ int cont = -1;
 
 BluetoothSerial SerialBT;
 int diag = 1;
+int edge = 1;
 float frf_amp = 50;
 float frf_freq = 1.0;
 
@@ -133,6 +99,7 @@ void loop()
     current_State = next_State;
     if (current_State == INIT) // initialization state
     {
+        control_Error = 0;
         // update transition timing
         edge1_t = millis();
         edge2_t = millis();
@@ -181,7 +148,10 @@ void loop()
     {
         if ((control_Error > 0) || (digitalRead(START_GPIO) == 0))
         {
-            Serial.println("Control Disabled...");
+            if (control_Error == 1)
+                Serial.println("Error Threshold Exceeded...");
+            else
+                Serial.println("Control Disabled...");
             beep(1);
             next_State = INIT;
         }
@@ -200,63 +170,17 @@ void loop()
         // MotorAngles.Transform(RobotAngles.roll, RobotAngles.pitch, RobotAngles.yaw);                            // motor coordinate system
 
         // single edge control
-        m1_pos = -0.5 * (RobotAngles.roll + RobotAngles.pitch);
-        m1_vel = -0.5 * (RobotAngles.GetGyroX() + RobotAngles.GetGyroY());
+        if (current_State != CORNER)
+        {
+            m1_pos = -0.5 * (RobotAngles.roll + RobotAngles.pitch);
+            m1_vel = -0.5 * (RobotAngles.GetGyroX() + RobotAngles.GetGyroY());
 
-        m2_pos = RobotAngles.roll;
-        m2_vel = RobotAngles.GetGyroX();
+            m2_pos = RobotAngles.roll;
+            m2_vel = RobotAngles.GetGyroX();
 
-        m3_pos = 0.5 * (RobotAngles.pitch + RobotAngles.roll);
-        m3_vel = 0.5 * (RobotAngles.GetGyroY() + RobotAngles.GetGyroX());
-
-        // // roll control
-        // // - combination 1
-        // m1_pos = -RobotAngles.roll;
-        // m1_vel = -RobotAngles.GetGyroX();
-
-        // m2_pos = RobotAngles.roll;
-        // m2_vel = RobotAngles.GetGyroX();
-
-        // m3_pos = 0.0;
-        // m3_vel = 0.0;
-
-        // // - combination 2
-        // m1_pos = -RobotAngles.roll;
-        // m1_vel = -RobotAngles.GetGyroX();
-
-        // m2_pos = 0.0;
-        // m2_vel = 0.0;
-
-        // m3_pos = -RobotAngles.roll;
-        // m3_vel = -RobotAngles.GetGyroX();
-
-        // // - total
-        // m1_pos = -0.25 * RobotAngles.roll;
-        // m1_vel = -0.25 * RobotAngles.GetGyroX();
-
-        // m2_pos = 0.5 * RobotAngles.roll;
-        // m2_vel = 0.5 * RobotAngles.GetGyroX();
-
-        // m3_pos = -0.25 * RobotAngles.roll;
-        // m3_vel = -0.25 * RobotAngles.GetGyroX();
-
-        // pitch control
-        // m1_pos = -0.5 * RobotAngles.pitch;
-        // m1_vel = -0.5 * RobotAngles.GetGyroY();
-
-        // m2_pos = 0.0;
-        // m2_vel = 0.0;
-
-        // m3_pos = 0.5 * RobotAngles.pitch;
-        // m3_vel = 0.5 * RobotAngles.GetGyroY();
-
-        // yaw control
-        // m1_pos = 0.0;
-        // m1_vel = -RobotAngles.GetGyroZ() / 3.0;
-        // m2_pos = 0.0;
-        // m2_vel = -RobotAngles.GetGyroZ() / 3.0;
-        // m3_pos = 0.0;
-        // m3_vel = -RobotAngles.GetGyroZ() / 3.0;
+            m3_pos = RobotAngles.pitch;
+            m3_vel = RobotAngles.GetGyroY();
+        }
     }
 
     // CONTROL UPDATE
@@ -267,31 +191,7 @@ void loop()
         control_t = micros();
         if (current_State == INIT)
         {
-            // set control gains
-            M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-            M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-            M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-            M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-            M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-            M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-            M1_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-            M2_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-            M3_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-
-            // set control gains
-            R_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-            P_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-            Y_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-            R_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-            P_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-            Y_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-            R_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-            P_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-            Y_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
+            CalcGains(-1);
             // stop motors
             Stop();
         }
@@ -303,8 +203,8 @@ void loop()
             M1_Control.SetTarget(m1_pos);
             M2_Control.SetTarget(m2_pos);
             M3_Control.SetTarget(m3_pos);
-            R_Control.SetTarget(0.0);
-            P_Control.SetTarget(0.0);
+            R_Control.SetTarget(RobotAngles.roll);
+            P_Control.SetTarget(RobotAngles.pitch);
             Y_Control.SetTarget(0.0);
         }
         else if (current_State == EDGE1)
@@ -315,6 +215,9 @@ void loop()
             control_Error = M1_Control.ControlUpdate(m1_pos, m1_vel, 1);
             M2_Control.Disable();
             M3_Control.Disable();
+            // tilt error detection
+            if (abs(M1_Control._pos_error) > ERROR_THRESHOLD)
+                control_Error = 1;
         }
         else if (current_State == EDGE2)
         { // silver edge
@@ -324,6 +227,9 @@ void loop()
             M1_Control.Disable();
             control_Error = M2_Control.ControlUpdate(m2_pos, m2_vel, 1);
             M3_Control.Disable();
+            // tilt error detection
+            if (abs(M2_Control._pos_error) > ERROR_THRESHOLD)
+                control_Error = 1;
         }
         else if (current_State == EDGE3)
         { // purple edge
@@ -333,21 +239,24 @@ void loop()
             M1_Control.Disable();
             M2_Control.Disable();
             control_Error = M3_Control.ControlUpdate(m3_pos, m3_vel, 1);
+            // tilt error detection
+            if (abs(M3_Control._pos_error) > ERROR_THRESHOLD)
+                control_Error = 1;
         }
         else if (current_State == CORNER)
         {
+            control_Error = 0;
             // brake off
             digitalWrite(EMO_GPIO, HIGH);
-            // M1_Control.Disable();
-            // M2_Control.Disable();
-            // M3_Control.Disable();
-            // control_Error = M1_Control.ControlUpdate(m1_pos, m1_vel) +
-            //                 M2_Control.ControlUpdate(m2_pos, m2_vel) +
-            //                 M3_Control.ControlUpdate(m3_pos, m3_vel);
 
-            R_Control.ControlUpdate(RobotAngles.roll, RobotAngles.GetGyroX(), 0, 1, 0);
-            P_Control.ControlUpdate(RobotAngles.pitch, RobotAngles.GetGyroY(), 0, 1, 0);
-            Y_Control.ControlUpdate(0.0, RobotAngles.GetGyroZ(), 0, 0, 0);
+            control_Error = 0;
+            control_Error += R_Control.ControlUpdate(RobotAngles.roll, RobotAngles.GetGyroX(), 0, 1, 1, 0);
+            control_Error += P_Control.ControlUpdate(RobotAngles.pitch, RobotAngles.GetGyroY(), 0, 1, 1, 0);
+            control_Error += Y_Control.ControlUpdate(0.0, RobotAngles.GetGyroZ(), 0, 0, 0, 0);
+            if (abs(R_Control._pos_error) > ERROR_THRESHOLD)
+                control_Error = 1;
+            if (abs(P_Control._pos_error) > ERROR_THRESHOLD)
+                control_Error = 1;
 
             // roll only
             // R_Control.SetOutput(-0.25 * R_Control._velocity_out);
@@ -370,9 +279,18 @@ void loop()
             // Y_Control.SetOutput(-0.33 * Y_Control._velocity_out);
 
             // roll + pitch
-            R_Control.SetOutput(-0.25 * R_Control._velocity_out - 0.5 * P_Control._velocity_out);
-            P_Control.SetOutput(0.5 * R_Control._velocity_out);
-            Y_Control.SetOutput(-0.25 * R_Control._velocity_out + 0.5 * P_Control._velocity_out);
+            m1_vel = -0.5 * R_Control._velocity_out; // - 0.5 * P_Control._velocity_out;
+            m2_vel = 1.0 * R_Control._velocity_out;
+            m3_vel = -0.5 * R_Control._velocity_out; // + 0.5 * P_Control._velocity_out;
+
+            // roll + pitch
+            m1_vel = -0.5 * R_Control._velocity_out - P_Control._velocity_out;
+            m2_vel = 1.0 * R_Control._velocity_out;
+            m3_vel = -0.5 * R_Control._velocity_out + P_Control._velocity_out;
+
+            R_Control.SetOutput(m1_vel);
+            P_Control.SetOutput(m2_vel);
+            Y_Control.SetOutput(m3_vel);
         }
         else
         {
@@ -394,6 +312,13 @@ void loop()
         {
             if ((current_State == EDGE1)) // || (current_State == IDLE))
             {
+
+                // Serial.print("Roll:");
+                // Serial.print(RobotAngles.roll, 6);
+                // Serial.print(", ");
+                // Serial.print("Pitch:");
+                // Serial.print(RobotAngles.pitch, 6);
+                // Serial.print(", ");
                 Serial.print("ErrorPos:");
                 Serial.print(M1_Control._pos_error, 6);
                 Serial.print(",");
@@ -419,7 +344,7 @@ void loop()
                 Serial.print(M1_Control.GetTarget(CONTROL_VEL), 6);
                 Serial.print(", ");
                 Serial.print("TargetPos:");
-                Serial.print(M1_Control.GetTarget(CONTROL_POS) + M1_Control.GetTarget(CONTROL_BAL), 6);
+                Serial.print(M1_Control.GetTarget(CONTROL_FULL), 6);
                 Serial.print(", ");
                 Serial.print("MeasLate:");
                 Serial.print(measurement_late, 6);
@@ -428,6 +353,12 @@ void loop()
             }
             else if (current_State == EDGE2)
             {
+                // Serial.print("Roll:");
+                // Serial.print(RobotAngles.roll, 6);
+                // Serial.print(", ");
+                // Serial.print("Pitch:");
+                // Serial.print(RobotAngles.pitch, 6);
+                // Serial.print(", ");
                 Serial.print("ErrorPos:");
                 Serial.print(M2_Control._pos_error, 6);
                 Serial.print(",");
@@ -453,7 +384,7 @@ void loop()
                 Serial.print(M2_Control.GetTarget(CONTROL_VEL), 6);
                 Serial.print(", ");
                 Serial.print("TargetPos:");
-                Serial.print(M2_Control.GetTarget(CONTROL_POS) + M2_Control.GetTarget(CONTROL_BAL), 6);
+                Serial.print(M2_Control.GetTarget(CONTROL_FULL), 6);
                 Serial.print(", ");
                 Serial.print("MeasLate:");
                 Serial.print(measurement_late, 6);
@@ -462,6 +393,12 @@ void loop()
             }
             else if (current_State == EDGE3)
             {
+                // Serial.print("Roll:");
+                // Serial.print(RobotAngles.roll, 6);
+                // Serial.print(", ");
+                // Serial.print("Pitch:");
+                // Serial.print(RobotAngles.pitch, 6);
+                // Serial.print(", ");
                 Serial.print("ErrorPos:");
                 Serial.print(M3_Control._pos_error, 6);
                 Serial.print(",");
@@ -487,7 +424,7 @@ void loop()
                 Serial.print(M3_Control.GetTarget(CONTROL_VEL), 6);
                 Serial.print(", ");
                 Serial.print("TargetPos:");
-                Serial.print(M3_Control.GetTarget(CONTROL_POS) + M3_Control.GetTarget(CONTROL_BAL), 6);
+                Serial.print(M3_Control.GetTarget(CONTROL_FULL), 6);
                 Serial.print(", ");
                 Serial.print("MeasLate:");
                 Serial.print(measurement_late, 6);
@@ -501,11 +438,12 @@ void loop()
                 Serial.print(",");
                 Serial.print("ErrorRVel:");
                 Serial.print(R_Control._vel_error, 6);
+                Serial.print(",");
                 Serial.print("TargetRVel:");
                 Serial.print(R_Control.GetTarget(CONTROL_VEL), 6);
                 Serial.print(",");
                 Serial.print("TargetRPos:");
-                Serial.print(R_Control.GetTarget(CONTROL_POS) + R_Control.GetTarget(CONTROL_BAL), 6);
+                Serial.print(R_Control.GetTarget(CONTROL_FULL), 6);
                 Serial.print(",");
 
                 Serial.print("ErrorPPos:");
@@ -518,19 +456,32 @@ void loop()
                 Serial.print(P_Control.GetTarget(CONTROL_VEL), 6);
                 Serial.print(",");
                 Serial.print("TargetPPos:");
-                Serial.print(P_Control.GetTarget(CONTROL_POS) + P_Control.GetTarget(CONTROL_BAL), 6);
+                Serial.print(P_Control.GetTarget(CONTROL_FULL), 6);
+                Serial.print(",");
 
-                Serial.print("ErrorYPos:");
-                Serial.print(Y_Control._pos_error, 6);
+                // Serial.print("ErrorYPos:");
+                // Serial.print(Y_Control._pos_error, 6);
+                // Serial.print(",");
+                // Serial.print("ErrorYVel:");
+                // Serial.print(Y_Control._vel_error, 6);
+                // Serial.print(",");
+                // Serial.print("TargetYVel:");
+                // Serial.print(Y_Control.GetTarget(CONTROL_VEL), 6);
+                // Serial.print(",");
+                // Serial.print("TargetYPos:");
+                // Serial.print(Y_Control.GetTarget(CONTROL_POS) + Y_Control.GetTarget(CONTROL_BAL), 6);
+
+                Serial.print("M1Vel:");
+                Serial.print(m1_vel, 6);
                 Serial.print(",");
-                Serial.print("ErrorYVel:");
-                Serial.print(Y_Control._vel_error, 6);
+
+                Serial.print("M2Vel:");
+                Serial.print(m2_vel, 6);
                 Serial.print(",");
-                Serial.print("TargetYVel:");
-                Serial.print(Y_Control.GetTarget(CONTROL_VEL), 6);
+
+                Serial.print("M3Vel:");
+                Serial.print(m3_vel, 6);
                 Serial.print(",");
-                Serial.print("TargetYPos:");
-                Serial.print(Y_Control.GetTarget(CONTROL_POS) + Y_Control.GetTarget(CONTROL_BAL), 6);
 
                 // Serial.print("ErrorPPos:");
                 // Serial.print(P_Control._pos_error, 6);
@@ -610,6 +561,8 @@ void monitorVoltage(int buzz)
 
 void Tuning()
 {
+    char *variableNames[5] = {"zero-crossing [Hz]", "integral cutoff [Hz]", "low-pass cutoff [Hz]", "gain", "lead-lag phase boost"};
+    char *controlNames[2] = {"corner", "edge"};
     if (!Serial.available())
         return;
     char cmd = Serial.read();
@@ -617,314 +570,148 @@ void Tuning()
     {
     case 'd':
         if (diag == 1)
+        {
+            Serial.println("Diagnostic data mode disabled...");
             diag = 0;
+        }
         else
+        {
+            Serial.println("Diagnostic data mode enabled!");
             diag = 1;
+        }
         break;
     case '1':
         mode = 1;
+        Serial.print(variableNames[mode - 1]);
+        Serial.println(" selected");
         break;
     case '2':
         mode = 2;
+        Serial.print(variableNames[mode - 1]);
+        Serial.println(" selected");
         break;
     case '3':
         mode = 3;
+        Serial.print(variableNames[mode - 1]);
+        Serial.println(" selected");
         break;
     case '4':
         mode = 4;
+        Serial.print(variableNames[mode - 1]);
+        Serial.println(" selected");
         break;
     case '5':
         mode = 5;
+        Serial.print(variableNames[mode - 1]);
+        Serial.println(" selected");
         break;
     case 'v':
-        cont = CONTROL_VEL;
+        Serial.println("Velocity control loop selected");
+        if (edge == 1)
+            controlIdx = 0;
+        else
+            controlIdx = 3;
         break;
     case 'p':
-        cont = CONTROL_POS;
+        Serial.println("Position control loop selected");
+        if (edge == 1)
+            controlIdx = 1;
+        else
+            controlIdx = 4;
         break;
     case 'b':
-        cont = CONTROL_BAL;
+        Serial.println("Balance control loop selected");
+        if (edge == 1)
+            controlIdx = 2;
+        else
+            controlIdx = 5;
+        break;
+    case 'e':
+        if (edge == 1)
+        {
+            Serial.println("Corner control loop selected");
+            edge = 0;
+        }
+        else
+        {
+            Serial.println("Edge control loop selected");
+            edge = 1;
+        }
         break;
     case '+':
-        if (mode == 1)
+        control_gains[controlIdx][mode - 1] *= 1.1;
+        if (mode == 5)
         {
-            if (cont == CONTROL_VEL)
-            {
-                fc1 *= 1.1;
-                Serial.print("increased fc1 = ");
-                Serial.println(fc1);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                fc2 *= 1.1;
-                Serial.print("increased fc2 = ");
-                Serial.println(fc2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                fc3 *= 1.1;
-                Serial.print("increased fc3 = ");
-                Serial.println(fc3, 8);
-            }
+            if (control_gains[controlIdx][mode - 1] == 0)
+                control_gains[controlIdx][mode - 1] = 1.0;
         }
-        else if (mode == 2)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                fi1 *= 1.1;
-                Serial.print("increased fi1 = ");
-                Serial.println(fi1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                fi2 *= 1.1;
-                Serial.print("increased fi2 = ");
-                Serial.println(fi2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                fi3 *= 1.1;
-                Serial.print("increased fi3 = ");
-                Serial.println(fi3, 8);
-            }
-        }
-        else if (mode == 3)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                flp1 *= 1.1;
-                Serial.print("increased flp1 = ");
-                Serial.println(flp1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                flp2 *= 1.1;
-                Serial.print("increased flp2 = ");
-                Serial.println(flp2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                flp3 *= 1.1;
-                Serial.print("increased flp3 = ");
-                Serial.println(flp3, 8);
-            }
-        }
-        else if (mode == 4)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                gain1 *= 1.1;
-                Serial.print("increased gain1 = ");
-                Serial.println(gain1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                gain2 *= 1.1;
-                Serial.print("increased gain2 = ");
-                Serial.println(gain2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                gain3 *= 1.1;
-                Serial.print("increased gain3 = ");
-                Serial.println(gain3, 8);
-            }
-        }
-        else if (mode == 5)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                phase1 *= 1.1;
-                if (phase1 == 0.0)
-                    phase1 = 1.0;
-                Serial.print("increased phase1 = ");
-                Serial.println(phase1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                phase2 *= 1.1;
-                if (phase2 == 0.0)
-                    phase2 = 1.0;
-                Serial.print("increased phase2 = ");
-                Serial.println(phase2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                phase3 *= 1.1;
-                if (phase3 == 0.0)
-                    phase3 = 1.0;
-                Serial.print("increased phase3 = ");
-                Serial.println(phase3, 8);
-            }
-        }
-        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-        M1_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-        M2_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-        M3_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-
-        R_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-        P_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-        Y_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-        R_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-        P_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-        Y_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-        R_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-        P_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-        Y_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-
+        Serial.print("increased ");
+        Serial.print(controlNames[edge]);
+        Serial.print(" ");
+        Serial.print(variableNames[mode - 1]);
+        Serial.print(" -> ");
+        Serial.println(control_gains[controlIdx][mode - 1], 6);
+        CalcGains(controlIdx);
         break;
     case '-':
-        if (mode == 1)
+        control_gains[controlIdx][mode - 1] *= 0.9;
+        if (mode == 5)
         {
-            if (cont == CONTROL_VEL)
-            {
-                fc1 *= 0.9;
-                Serial.print("increased fc1 = ");
-                Serial.println(fc1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                fc2 *= 0.9;
-                Serial.print("increased fc2 = ");
-                Serial.println(fc2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                fc3 *= 0.9;
-                Serial.print("increased fc3 = ");
-                Serial.println(fc3, 8);
-            }
+            if (control_gains[controlIdx][mode - 1] < 1.0)
+                control_gains[controlIdx][mode - 1] = 0.0;
         }
-        else if (mode == 2)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                fi1 *= 0.9;
-                Serial.print("increased fi1 = ");
-                Serial.println(fi1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                fi2 *= 0.9;
-                Serial.print("increased fi2 = ");
-                Serial.println(fi2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                fi3 *= 0.9;
-                Serial.print("increased fi3 = ");
-                Serial.println(fi3, 8);
-            }
-        }
-        else if (mode == 3)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                flp1 *= 0.9;
-                Serial.print("increased flp1 = ");
-                Serial.println(flp1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                flp2 *= 0.9;
-                Serial.print("increased flp2 = ");
-                Serial.println(flp2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                flp3 *= 0.9;
-                Serial.print("increased flp3 = ");
-                Serial.println(flp3, 8);
-            }
-        }
-        else if (mode == 4)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                gain1 *= 0.9;
-                Serial.print("increased gain1 = ");
-                Serial.println(gain1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                gain2 *= 0.9;
-                Serial.print("increased gain2 = ");
-                Serial.println(gain2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                gain3 *= 0.9;
-                Serial.print("increased gain3 = ");
-                Serial.println(gain3, 8);
-            }
-        }
-        else if (mode == 5)
-        {
-            if (cont == CONTROL_VEL)
-            {
-                phase1 *= 0.9;
-                if (phase1 < 0.0)
-                    phase1 = 0.0;
-                Serial.print("increased phase1 = ");
-                Serial.println(phase1, 8);
-            }
-            else if (cont == CONTROL_POS)
-            {
-                phase2 *= 0.9;
-                if (phase2 < 0.0)
-                    phase2 = 0.0;
-                Serial.print("increased phase2 = ");
-                Serial.println(phase2, 8);
-            }
-            else if (cont == CONTROL_BAL)
-            {
-                phase3 *= 0.9;
-                if (phase3 < 0.0)
-                    phase3 = 0.0;
-                Serial.print("increased phase3 = ");
-                Serial.println(phase3, 8);
-            }
-        }
-
-        M1_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-        M2_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-        M3_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-        M1_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-        M2_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-        M3_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-        M1_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-        M2_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-        M3_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-
-        R_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 1);
-        P_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-        Y_Control.CalcGains(fc1 * 2 * PI, fi1 * 2 * PI, flp1 * 2 * PI, gain1, phase1, CONTROL_VEL, 0);
-
-        R_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 1);
-        P_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-        Y_Control.CalcGains(fc2 * 2 * PI, fi2 * 2 * PI, flp2 * 2 * PI, gain2, phase2, CONTROL_POS, 0);
-
-        R_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 1);
-        P_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-        Y_Control.CalcGains(fc3 * 2 * PI, fi3 * 2 * PI, flp3 * 2 * PI, gain3, phase3, CONTROL_BAL, 0);
-
+        Serial.print("decreased ");
+        Serial.print(controlNames[edge]);
+        Serial.print(" ");
+        Serial.print(variableNames[mode - 1]);
+        Serial.print(" -> ");
+        Serial.println(control_gains[controlIdx][mode - 1], 6);
+        CalcGains(controlIdx);
         break;
+
     case 's':
-        M1_Control.Disable();
-        M2_Control.Disable();
-        M3_Control.Disable();
+        Stop();
         delay(2000);
         break;
+    }
+}
+
+void CalcGains(int controlIdx)
+{
+    if (controlIdx == 0 || controlIdx < 0)
+    {
+        M1_Control.CalcGains(control_gains[0][0], control_gains[0][1], control_gains[0][2], control_gains[0][3], control_gains[0][4], CONTROL_VEL, 1);
+        M2_Control.CalcGains(control_gains[0][0], control_gains[0][1], control_gains[0][2], control_gains[0][3], control_gains[0][4], CONTROL_VEL, 0);
+        M3_Control.CalcGains(control_gains[0][0], control_gains[0][1], control_gains[0][2], control_gains[0][3], control_gains[0][4], CONTROL_VEL, 0);
+    }
+    if (controlIdx == 1 || controlIdx < 0)
+    {
+        M1_Control.CalcGains(control_gains[1][0], control_gains[1][1], control_gains[1][2], control_gains[1][3], control_gains[1][4], CONTROL_POS, 1);
+        M2_Control.CalcGains(control_gains[1][0], control_gains[1][1], control_gains[1][2], control_gains[1][3], control_gains[1][4], CONTROL_POS, 0);
+        M3_Control.CalcGains(control_gains[1][0], control_gains[1][1], control_gains[1][2], control_gains[1][3], control_gains[1][4], CONTROL_POS, 0);
+    }
+    if (controlIdx == 2 || controlIdx < 0)
+    {
+        M1_Control.CalcGains(control_gains[2][0], control_gains[2][1], control_gains[2][2], control_gains[2][3], control_gains[2][4], CONTROL_BAL, 1);
+        M2_Control.CalcGains(control_gains[2][0], control_gains[2][1], control_gains[2][2], control_gains[2][3], control_gains[2][4], CONTROL_BAL, 0);
+        M3_Control.CalcGains(control_gains[2][0], control_gains[2][1], control_gains[2][2], control_gains[2][3], control_gains[2][4], CONTROL_BAL, 0);
+    }
+    if (controlIdx == 3 || controlIdx < 0)
+    {
+        R_Control.CalcGains(control_gains[3][0], control_gains[3][1], control_gains[3][2], control_gains[3][3], control_gains[3][4], CONTROL_VEL, 1);
+        P_Control.CalcGains(control_gains[3][0], control_gains[3][1], control_gains[3][2], control_gains[3][3], control_gains[3][4], CONTROL_VEL, 0);
+        Y_Control.CalcGains(control_gains[3][0], control_gains[3][1], control_gains[3][2], control_gains[3][3], control_gains[3][4], CONTROL_VEL, 0);
+    }
+    if (controlIdx == 4 || controlIdx < 0)
+    {
+        R_Control.CalcGains(control_gains[4][0], control_gains[4][1], control_gains[4][2], control_gains[4][3], control_gains[4][4], CONTROL_POS, 1);
+        P_Control.CalcGains(control_gains[4][0], control_gains[4][1], control_gains[4][2], control_gains[4][3], control_gains[4][4], CONTROL_POS, 0);
+        Y_Control.CalcGains(control_gains[4][0], control_gains[4][1], control_gains[4][2], control_gains[4][3], control_gains[4][4], CONTROL_POS, 0);
+    }
+    if (controlIdx == 5 || controlIdx < 0)
+    {
+        R_Control.CalcGains(control_gains[5][0], control_gains[5][1], control_gains[5][2], control_gains[5][3], control_gains[5][4], CONTROL_BAL, 1);
+        P_Control.CalcGains(control_gains[5][0], control_gains[5][1], control_gains[5][2], control_gains[5][3], control_gains[5][4], CONTROL_BAL, 0);
+        Y_Control.CalcGains(control_gains[5][0], control_gains[5][1], control_gains[5][2], control_gains[5][3], control_gains[5][4], CONTROL_BAL, 0);
     }
 }

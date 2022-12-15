@@ -5,7 +5,7 @@
 #include "common.h"
 #include "DiscreteFilter.h"
 
-#define ACC_GYRO_FILTER 0.9
+#define ACC_GYRO_FILTER 0.99
 #define ACC_FILTER 5.0
 #define GYRO_FILTER 0.5
 

@@ -24,8 +24,8 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
     ledcAttachPin(PWM_GPIO, _pwmChannel);
 
     // control loop settings
-    _bal_loop.SetWindup(-0.5, 0.5, _WINDUP);
-    _pos_loop.SetWindup(-0.1, 0.1, _WINDUP);
+    _bal_loop.SetWindup(-1.5, 1.5, _WINDUP);
+    _pos_loop.SetWindup(-0.01, 0.01, _WINDUP);
     _vel_loop.SetWindup(_MIN_OUT, _MAX_OUT, _WINDUP); // TODO: set to max speed instead?
 
     // default values
@@ -56,8 +56,12 @@ void ControlAlgo::SetGains(float gains[8], int type)
             throw std::invalid_argument("Invalid control type");
 }
 
-void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float phase, int type, int print)
+void ControlAlgo::CalcGains(float fc, float fi, float flp, float gain, float phase, int type, int print)
 {
+    float wc = fc * 2 * PI;
+    float wi = fi * 2 * PI;
+    float wlp = flp * 2 * PI;
+
     float integralTol = 0.000001;
 
     double Ts = CONTROL_PERIOD_USEC / 1E6;
@@ -73,7 +77,8 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     {
         if (phase > 0)
         {
-            Serial.println("Velocity Controller -> Lead Lag + Low Pass");
+            if (print == 1)
+                Serial.println("Velocity Controller -> Lead Lag + Low Pass");
             K = gain / a;
             b0 = K * Ts * Ts * a * wc * wlp + 2 * K * Ts * a * a * wlp;
             b1 = 2 * K * Ts * Ts * a * wc * wlp;
@@ -87,7 +92,8 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         }
         else
         {
-            Serial.println("Velocity Controller -> Low Pass");
+            if (print == 1)
+                Serial.println("Velocity Controller -> Low Pass");
             K = gain;
             a0 = Ts * wlp + 2;
             a1 = Ts * wlp - 2;
@@ -114,7 +120,8 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     {
         if (phase > 0)
         {
-            Serial.println("Position Controller -> Integral + Lead Lag + Low Pass");
+            if (print == 1)
+                Serial.println("Position Controller -> Integral + Lead Lag + Low Pass");
             K = gain * wi / a;
             a0 = (2 * Ts2 * a * wc * wi * wlp + 4 * Ts * a * wc * wi + 4 * Ts * wi * wlp + 8 * wi);
             a1 = (2 * Ts2 * a * wc * wi * wlp - 4 * Ts * a * wc * wi - 4 * Ts * wi * wlp - 24 * wi);
@@ -128,7 +135,8 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
         }
         else
         {
-            Serial.println("Position Controller -> Integral + Low Pass");
+            if (print == 1)
+                Serial.println("Position Controller -> Integral + Low Pass");
             K = gain * wi;
             b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
             b1 = 2 * K * Ts2 * wi * wlp;
@@ -153,7 +161,8 @@ void ControlAlgo::CalcGains(float wc, float wi, float wlp, float gain, float pha
     }
     else if (type == CONTROL_BAL)
     {
-        Serial.println("Balance Controller -> Integral + Low Pass");
+        if (print == 1)
+            Serial.println("Balance Controller -> Integral + Low Pass");
         K = gain * wi;
         b0 = (K * Ts2 * wi * wlp + 2 * K * Ts * wlp);
         b1 = 2 * K * Ts2 * wi * wlp;
@@ -235,6 +244,8 @@ float ControlAlgo::GetTarget(int type)
         return _vel_target;
     else if (type == CONTROL_BAL)
         return _bal_target;
+    else if (type == CONTROL_FULL)
+        return _pos_target + _bal_target + _dither;
     else
         throw std::invalid_argument("Invalid control type");
 }
@@ -269,10 +280,10 @@ void ControlAlgo::Disable()
 
 int ControlAlgo::ControlUpdate(float position, float velocity, int set_out)
 {
-    return ControlUpdate(position, velocity, set_out, 1, 1);
+    return ControlUpdate(position, velocity, set_out, 1, 1, 1);
 }
 
-int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop)
+int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop, int en_dither)
 {
     // BALANCING TARGET CONTROL LOOP
     // - sets position target to achieve low motor speed and balance
@@ -286,13 +297,16 @@ int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int 
         _bal_target = 0.0;
 
     // target dither
-    float dither = 0.25 * sin(2 * PI * millis() / 5000);
+    if (en_dither)
+        _dither = 0.25 * sin(2 * PI * millis() / 5000);
+    else
+        _dither = 0;
 
     // OUTER POSITION CONTROL LOOP
     // - sets velocity to achieve position
     if (en_pos_loop == 1)
     {
-        _pos_error = (position - (_pos_target + _bal_target) - dither);
+        _pos_error = (position - (_pos_target + _bal_target + _dither));
         _pos_loop.Update(_pos_error);
 
         _vel_target = (_invertDir == 1) ? _pos_loop.GetLatest() : -_pos_loop.GetLatest();
@@ -311,9 +325,12 @@ int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int 
     if (_ramp_time < EN_RAMP)
         _ramp_time++;
     _velocity_out = (_ramp_time / EN_RAMP) * (_velocity_out + _accel_out); // cumulative output, converting accel/force to speed
+    _velocity_out = constrain(_velocity_out, _MIN_SPEED, _MAX_SPEED);      // prevent wind-up of velocity
 
     if (set_out == 1)
         UpdateOutput(_velocity_out);
+    // else if (_pos_error < 1.0)
+    //     _velocity_out = 0.975 * _velocity_out;
 
     // TODO: add max velocity protection
     return 0;
@@ -321,7 +338,7 @@ int ControlAlgo::ControlUpdate(float position, float velocity, int set_out, int 
 
 void ControlAlgo::UpdateOutput(float output)
 {
-    output = constrain(output, _MIN_SPEED, _MAX_SPEED);
+    output = constrain(output, _MIN_OUT, _MAX_OUT);
     // set direction GPIO
     if ((output > 0) ^ (_invertDir == 1))
         digitalWrite(_DIR_GPIO, HIGH);

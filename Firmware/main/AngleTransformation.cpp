@@ -123,7 +123,7 @@ void RobotCS::MPU2Robot(float accX, float accY, float accZ, float gyroX, float g
     gyroZf.Update(gyroX);
 
     // absolute accelerometer angle
-    float AcMag = sqrt(pow(accXf.GetLatest(), 2) + pow(accYf.GetLatest(), 2) + pow(accZf.GetLatest(), 2));
+    // float AcMag = sqrt(pow(accXf.GetLatest(), 2) + pow(accYf.GetLatest(), 2) + pow(accZf.GetLatest(), 2));
     if (_initialized == 0)
     {
         _initialized = 1;

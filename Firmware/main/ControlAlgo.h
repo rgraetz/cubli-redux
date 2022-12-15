@@ -12,20 +12,21 @@
 #define CONTROL_VEL 0
 #define CONTROL_POS 1
 #define CONTROL_BAL 2
+#define CONTROL_FULL 3
 
 class ControlAlgo
 {
 public:
     ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum);
     int ControlUpdate(float position, float velocity, int set_out);
-    int ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop);
+    int ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop, int en_dither);
     void Disable();
     void SetTarget(float target);
     void SetGains(float gains[8], int type);
 
     float GetTarget(int type);
     float GetGain(int i, int type);
-    void CalcGains(float wc, float wi, float wlp, float gain, float phase, int type, int print);
+    void CalcGains(float fc, float fi, float flp, float gain, float phase, int type, int print);
     void LeakGains(float wc, float wlp, float gain);
     void SetOutput(float output);
 
@@ -42,6 +43,7 @@ private:
 
     float _bal_target, _pos_target, _vel_target;
     float _ramp_time;
+    float _dither;
 
     DiscreteFilter _bal_loop, _pos_loop, _vel_loop;
 
