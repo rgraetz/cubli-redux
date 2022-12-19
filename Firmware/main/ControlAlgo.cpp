@@ -1,6 +1,6 @@
 #include "ControlAlgo.h"
 
-ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum)
+ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, float maxSpeed, int motorNum)
 {
     _pwmChannel = motorNum - 1;
     _motorNum = motorNum;
@@ -14,11 +14,13 @@ ControlAlgo::ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum
 
     _MAX_OUT = 255;
     _MIN_OUT = -_MAX_OUT;
-    _MAX_SPEED = 100;
+
+    _MAX_SPEED = maxSpeed;
     _MIN_SPEED = -_MAX_SPEED;
 
     _WINDUP = 0.05;
 
+    // motor control setup
     pinMode(DIR_GPIO, OUTPUT);
     ledcSetup(_pwmChannel, PWM_BASE_FREQ, TIMER_BIT);
     ledcAttachPin(PWM_GPIO, _pwmChannel);
@@ -354,3 +356,8 @@ void ControlAlgo::UpdateOutput(float output)
 }
 
 void ControlAlgo::SetOutput(float output) { this->UpdateOutput(output); };
+void ControlAlgo::SetSpeed(float speed)
+{
+    this->_MAX_SPEED = speed;
+    this->_MIN_SPEED = -speed;
+}

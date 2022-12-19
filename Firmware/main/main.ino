@@ -1,5 +1,6 @@
 #include "main.h"
 
+// POSITION FEEDBACK
 DigitalEncoder M1_ENC(M1_CHA_GPIO, M1_CHB_GPIO, 1);
 DigitalEncoder M2_ENC(M2_CHA_GPIO, M2_CHB_GPIO, 2);
 DigitalEncoder M3_ENC(M3_CHA_GPIO, M3_CHB_GPIO, 3);
@@ -11,26 +12,29 @@ float u2[3] = {0.0, -0.70710678, 0.70710678};
 float u3[3] = {0.57735027, 0.57735027, 0.57735027};
 // AngleTransformation MotorAngles(u1, u2, u3);
 
-float m1_pos, m1_vel;
-float m2_pos, m2_vel;
-float m3_pos, m3_vel;
-
-// EDGE
+// CONTROL GAINS
 // zero-crossing [Hz], integrator cutoff [Hz], low-pass cutoff [Hz], gain, lead-lag phase bump
 float control_gains[6][5] = {{10.0, 0.0, 200.0, 1000.0, 3.0}, // edge velocity control gains
                              {1.0, 0.001, 10.0, 0.01, 0.0},   // edge position control gains
                              {1.0, 0.075, 1.0, 0.002, 0.0},   // edge balance control gains
                              {20.0, 0.0, 200.0, 1000.0, 3.0}, // corner velocity control gains
                              {1.0, 0.005, 1.0, 0.1, 0.0},     // corner position control gains
-                             {1.0, 0.15, 1.0, 0.001, 0.0}};   // corner balance control gains
+                             {1.0, 0.15, 1.0, 0.0125, 0.0}};  // corner balance control gains
 
-ControlAlgo M1_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 1); // Z-direction motor "black"
-ControlAlgo M2_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 2); // Y-direction motor "silver"
-ControlAlgo M3_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 3); // X-direction motor "purple"
+// CONTROL
+float m1_pos, m1_vel;
+float m2_pos, m2_vel;
+float m3_pos, m3_vel;
 
-ControlAlgo R_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 1);
-ControlAlgo P_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 2);
-ControlAlgo Y_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 3);
+// EDGE CONTROL
+ControlAlgo M1_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 100, 1); // Z-direction motor "black"
+ControlAlgo M2_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 100, 2); // Y-direction motor "silver"
+ControlAlgo M3_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 100, 3); // X-direction motor "purple"
+
+// CORNER CONTROL
+ControlAlgo R_Control(M1_DIR_GPIO, 0, M1_PWM_GPIO, 100, 1);
+ControlAlgo P_Control(M2_DIR_GPIO, 0, M2_PWM_GPIO, 100, 2);
+ControlAlgo Y_Control(M3_DIR_GPIO, 0, M3_PWM_GPIO, 100, 3);
 
 int current_State = 0;
 int next_State = 0;
@@ -253,37 +257,13 @@ void loop()
             control_Error += R_Control.ControlUpdate(RobotAngles.roll, RobotAngles.GetGyroX(), 0, 1, 1, 0);
             control_Error += P_Control.ControlUpdate(RobotAngles.pitch, RobotAngles.GetGyroY(), 0, 1, 1, 0);
             control_Error += Y_Control.ControlUpdate(0.0, RobotAngles.GetGyroZ(), 0, 0, 0, 0);
+            // error detection
             if (abs(R_Control._pos_error) > ERROR_THRESHOLD)
                 control_Error = 1;
             if (abs(P_Control._pos_error) > ERROR_THRESHOLD)
                 control_Error = 1;
 
-            // roll only
-            // R_Control.SetOutput(-0.25 * R_Control._velocity_out);
-            // P_Control.SetOutput(0.5 * R_Control._velocity_out);
-            // Y_Control.SetOutput(-0.25 * R_Control._velocity_out);
-
-            // roll + yaw
-            // R_Control.SetOutput(-0.25 * R_Control._velocity_out - 0.33 * Y_Control._velocity_out);
-            // P_Control.SetOutput(0.5 * R_Control._velocity_out - 0.33 * Y_Control._velocity_out);
-            // Y_Control.SetOutput(-0.25 * R_Control._velocity_out - 0.33 * Y_Control._velocity_out);
-
-            // pitch only
-            // R_Control.SetOutput(-0.5 * P_Control._velocity_out);
-            // P_Control.SetOutput(0.0 * P_Control._velocity_out);
-            // Y_Control.SetOutput(0.5 * P_Control._velocity_out);
-
-            // yaw only
-            // R_Control.SetOutput(-0.33 * Y_Control._velocity_out);
-            // P_Control.SetOutput(-0.33 * Y_Control._velocity_out);
-            // Y_Control.SetOutput(-0.33 * Y_Control._velocity_out);
-
-            // roll + pitch
-            m1_vel = -0.5 * R_Control._velocity_out; // - 0.5 * P_Control._velocity_out;
-            m2_vel = 1.0 * R_Control._velocity_out;
-            m3_vel = -0.5 * R_Control._velocity_out; // + 0.5 * P_Control._velocity_out;
-
-            // roll + pitch
+            // roll + pitch + yaw
             m1_vel = -0.5 * R_Control._velocity_out - P_Control._velocity_out;
             m2_vel = 1.0 * R_Control._velocity_out;
             m3_vel = -0.5 * R_Control._velocity_out + P_Control._velocity_out;
@@ -307,7 +287,7 @@ void loop()
         diagnostic_t = millis();
 
         Tuning();
-        monitorVoltage(1);
+        monitorVoltage(current_State != IDLE ? 1 : 0);
         if (diag == 1)
         {
             if ((current_State == EDGE1)) // || (current_State == IDLE))

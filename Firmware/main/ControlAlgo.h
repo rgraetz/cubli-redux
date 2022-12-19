@@ -7,7 +7,7 @@
 
 #define TIMER_BIT 8
 #define PWM_BASE_FREQ 15000
-#define EN_RAMP 200
+#define EN_RAMP 500
 
 #define CONTROL_VEL 0
 #define CONTROL_POS 1
@@ -17,12 +17,13 @@
 class ControlAlgo
 {
 public:
-    ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, int motorNum);
+    ControlAlgo(int DIR_GPIO, int invertDir, int PWM_GPIO, float maxSpeed, int motorNum);
     int ControlUpdate(float position, float velocity, int set_out);
     int ControlUpdate(float position, float velocity, int set_out, int en_pos_loop, int en_bal_loop, int en_dither);
     void Disable();
     void SetTarget(float target);
     void SetGains(float gains[8], int type);
+    void SetSpeed(float speed);
 
     float GetTarget(int type);
     float GetGain(int i, int type);
